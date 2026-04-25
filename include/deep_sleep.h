@@ -5,6 +5,7 @@
 #define TIME_TO_SLEEP 30          // Time ESP32 will go to sleep (in seconds)
 #define WAKEUP_GPIO GPIO_NUM_0
 
+// RTC_DATA_ATTR int bootCount = 0;
 void print_wakeup_reason(void);
 void go_sleep(void);
 

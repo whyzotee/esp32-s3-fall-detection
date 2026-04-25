@@ -5,7 +5,6 @@
 #include <driver/rtc_io.h>
 
 // RTC_DATA_ATTR int bootCount = 0;
-
 void print_wakeup_reason(void)
 {
     esp_sleep_wakeup_cause_t wakeup_reason;
@@ -49,9 +48,7 @@ void lora_init(void)
 
 void go_sleep(void)
 {
-    lora_init();
-
-    print_wakeup_reason();
+    // lora_init();
 
     esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 0);
 
@@ -63,9 +60,9 @@ void go_sleep(void)
                    " Seconds");
 
     // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
+    // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+    // esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
 
     Serial.println("Going to sleep now");
     delay(1000);
@@ -74,7 +71,7 @@ void go_sleep(void)
     // esp_sleep_config_gpio_isolate();
     pinMode(Vext, OUTPUT);
     digitalWrite(Vext, HIGH);
-    Radio.Sleep();
+    // Radio.Sleep();
     pinMode(RADIO_DIO_1, ANALOG);
     pinMode(RADIO_NSS, ANALOG);
     pinMode(RADIO_RESET, ANALOG);
