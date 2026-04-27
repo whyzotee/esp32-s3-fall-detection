@@ -1,8 +1,8 @@
 #include <Arduino.h>
 
 #include <gnss.h>
+#include <lora.h>
 #include <deep_sleep.h>
-#include <HT_TinyGPS++.h>
 
 void task1(void *parameters);
 void task2(void *parameters);
@@ -20,6 +20,7 @@ void setup()
     print_wakeup_reason();
 
     setup_gnss();
+    setup_lora();
 
     serialSem = xSemaphoreCreateMutex();
 
@@ -54,6 +55,9 @@ void task2(void *parameters)
 {
     for (;;)
     {
+        // if (count2 >= 5)
+        //     go_sleep();
+
         xSemaphoreTake(serialSem, portMAX_DELAY);
         Serial.printf("Task 2 counter: %d\n", count2++);
         xSemaphoreGive(serialSem);

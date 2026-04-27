@@ -7,10 +7,14 @@ int bootCount2 = 0;
 
 void setup_gnss(void)
 {
+
+    Serial1.begin(9600, SERIAL_8N1, GNSS_TX, GNSS_RX);
+
     pinMode(VGNSS_CTRL, OUTPUT);
     digitalWrite(VGNSS_CTRL, LOW);
 
-    Serial1.begin(9600, SERIAL_8N1, GNSS_TX, GNSS_RX);
+    // pinMode(GNSS_Wake, OUTPUT);
+    // digitalWrite(GNSS_Wake, HIGH);
 }
 
 uint8_t get_location(SemaphoreHandle_t serialSem)

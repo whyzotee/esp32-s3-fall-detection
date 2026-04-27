@@ -1,8 +1,9 @@
 #include <Arduino.h>
 #include <esp_sleep.h>
-#include <deep_sleep.h>
-#include <LoRaWan_APP.h>
 #include <driver/rtc_io.h>
+
+#include <lora.h>
+#include <deep_sleep.h>
 
 // RTC_DATA_ATTR int bootCount = 0;
 void print_wakeup_reason(void)
@@ -34,23 +35,10 @@ void print_wakeup_reason(void)
     }
 }
 
-void lora_init(void)
-{
-    Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
-    static RadioEvents_t RadioEvents;
-
-    RadioEvents.TxDone = NULL;
-    RadioEvents.TxTimeout = NULL;
-    RadioEvents.RxDone = NULL;
-
-    Radio.Init(&RadioEvents);
-}
-
 void go_sleep(void)
 {
-    // lora_init();
-
     esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 0);
+    // esp_sleep_enable_ext1_wakeup()
 
     rtc_gpio_pulldown_dis(WAKEUP_GPIO);
     rtc_gpio_pullup_en(WAKEUP_GPIO);
@@ -65,13 +53,14 @@ void go_sleep(void)
     // esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
 
     Serial.println("Going to sleep now");
-    delay(1000);
     Serial.flush();
+
+    delay(1000);
 
     // esp_sleep_config_gpio_isolate();
     pinMode(Vext, OUTPUT);
     digitalWrite(Vext, HIGH);
-    // Radio.Sleep();
+    Radio.Sleep();
     pinMode(RADIO_DIO_1, ANALOG);
     pinMode(RADIO_NSS, ANALOG);
     pinMode(RADIO_RESET, ANALOG);
