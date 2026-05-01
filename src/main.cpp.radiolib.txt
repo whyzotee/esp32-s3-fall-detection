@@ -1,0 +1,147 @@
+#include <SPI.h>
+#include <Arduino.h>
+#include <RadioLib.h>
+
+#include <lora/LoRa.h>
+
+#define VEXT 36
+
+#define LoRa_NSS 8
+#define LoRa_SCK 9
+#define LoRa_MOSI 10
+#define LoRa_MISO 11
+#define LoRa_RST 12
+#define LoRa_BUSY 13
+#define DIO1 14
+
+#define VBAT_CTRL 37
+#define VBAT_ADC 1
+
+uint32_t devAddr2 = (uint32_t)0x27FA7DA0;
+uint8_t nwkSKey2[] = {0x5D, 0x83, 0xCB, 0x32, 0x53, 0xA0, 0x5F, 0x15, 0xE4, 0xB3, 0x4E, 0x55, 0xFB, 0xAB, 0x62, 0xD9};
+uint8_t appSKey2[] = {0x35, 0x6F, 0x1D, 0x44, 0x6C, 0xC7, 0x29, 0xBD, 0x18, 0xA0, 0x06, 0x74, 0x9B, 0x75, 0x7D, 0x31};
+
+const uint32_t uplinkIntervalSeconds = 5UL;
+
+SPIClass *hspi = new SPIClass(HSPI);
+
+// SX1262 radio = new Module(LoRa_NSS, DIO1, LoRa_RST, LoRa_BUSY, *hspi);
+SX1262 radio = new Module(LoRa_NSS, DIO1, LoRa_RST, LoRa_BUSY);
+LoRaWANNode node(&radio, &AS923, 0);
+
+void heltec_ve(bool state)
+{
+    if (state)
+    {
+        pinMode(VEXT, OUTPUT);
+        digitalWrite(VEXT, LOW);
+    }
+    else
+    {
+        // pulled up, no need to drive it
+        pinMode(VEXT, INPUT);
+    }
+}
+
+void setup_lora()
+{
+    heltec_ve(false);
+
+    pinMode(VBAT_CTRL, INPUT);
+    pinMode(VBAT_ADC, INPUT);
+    pinMode(DIO1, INPUT);
+    pinMode(LoRa_RST, INPUT);
+    pinMode(LoRa_BUSY, INPUT);
+    pinMode(LoRa_NSS, INPUT);
+    pinMode(LoRa_MISO, INPUT);
+    pinMode(LoRa_MOSI, INPUT);
+    pinMode(LoRa_SCK, INPUT);
+}
+
+void setup()
+{
+    Serial.begin(115200);
+
+    pinMode(VEXT, OUTPUT);
+    digitalWrite(VEXT, LOW);
+    delay(100);
+
+    Serial.print(F("[SX1262] Initializing ... "));
+    radio.begin();
+
+    node.beginABP(devAddr2, NULL, NULL, nwkSKey2, appSKey2);
+    node.activateABP();
+
+    Serial.print(F("[SX1262] OK ... "));
+}
+
+// void setup()
+// {
+//     // setup_lora();
+
+//     Serial.begin(115200);
+
+//     hspi->begin(LoRa_SCK, LoRa_MISO, LoRa_MOSI, LoRa_NSS);
+
+//     delay(5000);
+
+//     Serial.println("Radio init");
+//     int16_t state = radio.begin();
+//     if (state != RADIOLIB_ERR_NONE)
+//     {
+//         Serial.println("Radio did not initialize. We'll try again later.");
+//         while (1)
+//             ;
+//     }
+
+//     // node.beginABP(devAddr2, NULL, NULL, nwkSKey2, appSKey2);
+
+//     // node.activateABP();
+
+//     node = persist.manage(&radio);
+
+//     if (!node->isActivated())
+//     {
+//         Serial.println("Could not join network. We'll try again later.");
+//         while (1)
+//             ;
+//     }
+
+//     // If we're still here, it means we joined, and we can send something
+
+//     // Manages uplink intervals to the TTN Fair Use Policy
+//     node->setDutyCycle(true, 1250);
+// }
+
+void loop()
+{
+    Serial.println(F("Sending uplink"));
+
+    uint8_t uplinkPayload[3];
+    uplinkPayload[0] = 0x01;
+    uplinkPayload[1] = 0x02;
+    uplinkPayload[2] = 0x03;
+
+    int state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload));
+
+    if (state < RADIOLIB_ERR_NONE)
+    {
+        Serial.println("Error in sendReceive");
+    }
+
+    if (state > 0)
+    {
+        Serial.println(F("Received a downlink"));
+    }
+    else
+    {
+        Serial.println(F("No downlink received"));
+    }
+
+    Serial.print(F("Next uplink in "));
+    Serial.print(uplinkIntervalSeconds);
+    Serial.println(F(" seconds\n"));
+
+    // Wait until next uplink - observing legal & TTN FUP constraints
+    delay(uplinkIntervalSeconds * 1000UL); // delay needs milli-seconds
+}

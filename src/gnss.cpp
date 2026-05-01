@@ -1,9 +1,9 @@
 #include <gnss.h>
-#include <HT_TinyGPS++.h>
+#include <TinyGPS++.h>
 
 TinyGPSPlus GPS;
 
-int bootCount2 = 0;
+RTC_DATA_ATTR uint16_t bootCount = 0;
 
 void setup_gnss(void)
 {
@@ -17,7 +17,7 @@ void setup_gnss(void)
     // digitalWrite(GNSS_Wake, HIGH);
 }
 
-uint8_t get_location(SemaphoreHandle_t serialSem)
+uint8_t print_location(SemaphoreHandle_t serialSem)
 {
     while (Serial1.available() > 0)
     {
@@ -38,6 +38,50 @@ uint8_t get_location(SemaphoreHandle_t serialSem)
     }
 
     return 0;
+}
+
+void get_location()
+{
+    uint8_t counter = 0;
+    uint32_t timeout = 120 * 1000;
+
+    // if (bootCount == 0)
+    // {
+    //     timeout = 120 * 1000; // 120s
+    // }
+    // else
+    // {
+    //     timeout = 30 * 1000; // 45s
+    // }
+
+    uint32_t start = millis();
+    uint32_t start_1 = millis();
+
+    while (!GPS.location.isValid())
+    {
+        do
+        {
+            if (Serial1.available())
+            {
+                GPS.encode(Serial1.read());
+            }
+        } while (GPS.charsProcessed() < 500);
+
+        if ((millis() - start_1) > 1 * 1000)
+        {
+            counter++;
+            start_1 = millis();
+            Serial.printf("GPS.location.isValid(%d)", counter);
+            Serial.println();
+        }
+        if ((millis() - start) > timeout)
+        {
+            Serial.printf("No GPS data received: check wiring%d:%d", millis(), start);
+            break;
+        }
+    }
+
+    bootCount++;
 }
 
 // void get_location(SemaphoreHandle_t serialSem)

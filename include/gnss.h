@@ -12,6 +12,7 @@
 #define GNSS_RTS 42
 
 void setup_gnss(void);
-uint8_t get_location(SemaphoreHandle_t serialSem);
+uint8_t print_location(SemaphoreHandle_t serialSem);
+void get_location();
 
 #endif

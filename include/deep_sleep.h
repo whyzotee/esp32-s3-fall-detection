@@ -6,7 +6,7 @@
 #define WAKEUP_GPIO GPIO_NUM_0
 
 // RTC_DATA_ATTR int bootCount = 0;
-void print_wakeup_reason(void);
+uint8_t print_wakeup_reason(void);
 void go_sleep(void);
 
 #endif

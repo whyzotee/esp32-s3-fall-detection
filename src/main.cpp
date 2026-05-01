@@ -1,13 +1,13 @@
 #include <Arduino.h>
 
+#include <ota.h>
 #include <gnss.h>
-#include <lora.h>
+#include <lora_wan.h>
 #include <deep_sleep.h>
 
-void task1(void *parameters);
-void task2(void *parameters);
 void vGNSSTask(void *parameters);
 
+uint8_t wake_status = 0;
 int count1 = 0;
 int count2 = 0;
 
@@ -16,11 +16,12 @@ SemaphoreHandle_t serialSem;
 void setup()
 {
     Serial.begin(115200);
+    // delay(5000);
 
-    print_wakeup_reason();
+    wake_status = print_wakeup_reason();
 
     setup_gnss();
-    setup_lora();
+    setup_lora_wan_app();
 
     serialSem = xSemaphoreCreateMutex();
 
@@ -31,49 +32,28 @@ void setup()
             ;
     }
 
-    xTaskCreate(task1, "Task 1", 2048, NULL, 1, NULL);
-    xTaskCreate(task2, "Task 2", 2048, NULL, 1, NULL);
-    xTaskCreate(vGNSSTask, "GNSS Task", 4096, NULL, 2, NULL);
+    // xTaskCreate(task1, "Task 1", 2048, NULL, 1, NULL);
+    // xTaskCreate(task2, "Task 2", 2048, NULL, 1, NULL);
+    // xTaskCreate(vGNSSTask, "GNSS Task", 4096, NULL, 2, NULL);
+
+    // setup_ota();
 }
 
 void loop()
 {
-}
-
-void task1(void *parameters)
-{
-    for (;;)
-    {
-        xSemaphoreTake(serialSem, portMAX_DELAY);
-        Serial.printf("Task 1 Timer second: %d\n", count1++);
-        xSemaphoreGive(serialSem);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-}
-
-void task2(void *parameters)
-{
-    for (;;)
-    {
-        // if (count2 >= 5)
-        //     go_sleep();
-
-        xSemaphoreTake(serialSem, portMAX_DELAY);
-        Serial.printf("Task 2 counter: %d\n", count2++);
-        xSemaphoreGive(serialSem);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
+    handle_ota();
+    enter_lora_wan_app(wake_status);
 }
 
 void vGNSSTask(void *parameters)
 {
     for (;;)
     {
-        uint8_t hasLocation = get_location(serialSem);
+        // uint8_t hasLocation = get_location(serialSem);
 
-        if (hasLocation)
-            go_sleep();
-
-        vTaskDelay(pdMS_TO_TICKS(20));
+        // if (hasLocation)
+        //     go_sleep();
+        // send_gps_data(13.72883826776297, 100.7759913633405, 0);
+        vTaskDelay(pdMS_TO_TICKS(15000));
     }
 }
