@@ -18,7 +18,7 @@ uint8_t print_wakeup_reason(void)
         return 1;
     case ESP_SLEEP_WAKEUP_EXT1:
         Serial.println("Wakeup caused by external signal using RTC_CNTL");
-        break;
+        return 2;
     case ESP_SLEEP_WAKEUP_TIMER:
         Serial.println("Wakeup caused by timer");
         break;

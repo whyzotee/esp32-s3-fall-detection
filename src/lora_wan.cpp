@@ -6,12 +6,12 @@
 #include <lora_wan.h>
 
 /* --- Setup Key --- */
-uint32_t devAddr = (uint32_t)0x00000000;
-uint8_t nwkSKey[] = {};
-uint8_t appSKey[] = {};
-uint8_t devEui[] = {};
-uint8_t appEui[] = {};
-uint8_t appKey[] = {};
+// uint32_t devAddr = (uint32_t)0x00000000;
+// uint8_t nwkSKey[] = {};
+// uint8_t appSKey[] = {};
+// uint8_t devEui[] = {};
+// uint8_t appEui[] = {};
+// uint8_t appKey[] = {};
 
 // /* --- Settings --- */
 LoRaMacRegion_t loraWanRegion = LORAMAC_REGION_AS923;
@@ -27,29 +27,54 @@ uint8_t confirmedNbTrials = 4;
 
 extern TinyGPSPlus GPS;
 
+extern int32_t rtc_lat;
+extern int32_t rtc_lon;
+extern uint8_t rtc_hour;
+extern uint8_t rtc_minute;
+extern uint8_t rtc_second;
+extern uint8_t rtc_centisecond;
+
 static void prepareTxFrame(uint8_t port, uint8_t status)
 {
     uint8_t hour, second, minute, centisecond;
+    float lat, lon;
 
-    get_location();
+    if (status == 1 || status == 2)
+    {
+        // if (rtc_lat == 0 && rtc_lon == 0)
+        //     get_location();
 
-    Serial.printf(" %02d:%02d:%02d.%02d", GPS.time.hour(), GPS.time.minute(), GPS.time.second(), GPS.time.centisecond());
+        lat = rtc_lat / 1e6f;
+        lon = rtc_lon / 1e6f;
+        hour = rtc_hour;
+        minute = rtc_minute;
+        second = rtc_second;
+        centisecond = rtc_centisecond;
+    }
+    else
+    {
+        get_location();
+        lat = GPS.location.lat();
+        lon = GPS.location.lng();
+        hour = GPS.time.hour();
+        minute = GPS.time.minute();
+        second = GPS.time.second();
+        centisecond = GPS.time.centisecond();
+    }
+
+    Serial.printf(" %02d:%02d:%02d.%02d", hour, minute, second, centisecond);
     Serial.print(", LAT: ");
-    Serial.print(GPS.location.lat());
+    Serial.print(lat);
     Serial.print(", LON: ");
-    Serial.print(GPS.location.lng());
+    Serial.print(lon);
+    Serial.printf(", STATUS: %d", status);
     Serial.println();
-
-    hour = GPS.time.hour();
-    minute = GPS.time.minute();
-    second = GPS.time.second();
-    centisecond = GPS.time.centisecond();
-    float lat = GPS.location.lat();
-    float lon = GPS.location.lng();
 
     unsigned char *puc;
 
     appDataSize = 0;
+    appData[appDataSize++] = status;
+
     puc = (unsigned char *)(&lat);
     appData[appDataSize++] = puc[0];
     appData[appDataSize++] = puc[1];
@@ -121,16 +146,21 @@ void enter_lora_wan_app(uint8_t wake_status)
     {
         if (loraWanClass == CLASS_A)
         {
-#ifdef WIRELESS_MINI_SHELL
-            esp_deep_sleep_enable_gpio_wakeup(1 << INT_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
-#else
-            esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_INT_PIN, 0);
-            esp_sleep_enable_ext1_wakeup(1ULL << FALL_INT_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
+            pinMode(36, OUTPUT);
+            digitalWrite(36, HIGH);
 
-            rtc_gpio_pullup_en(FALL_INT_PIN);
-            rtc_gpio_pulldown_dis(FALL_INT_PIN);
-#endif
+            pinMode(38, ANALOG);
+            pinMode(39, ANALOG);
+            rtc_gpio_isolate(GPIO_NUM_38);
+            rtc_gpio_isolate(GPIO_NUM_39);
+
+            esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_INT_PIN, 0);
+            esp_sleep_enable_ext1_wakeup(1ULL << FALL_INT_PIN, ESP_EXT1_WAKEUP_ANY_HIGH);
+
+            rtc_gpio_pulldown_en(FALL_INT_PIN);
+            rtc_gpio_pullup_dis(FALL_INT_PIN);
         }
+
         LoRaWAN.sleep(loraWanClass);
         break;
     }

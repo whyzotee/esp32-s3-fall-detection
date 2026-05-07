@@ -1,6 +1,7 @@
 #ifndef LORAWAN_H
 #define LORAWAN_H
 
+#include <WiFi.h>
 #include <LoRaWan_APP.h>
 // #include <RadioLib.h>
 
