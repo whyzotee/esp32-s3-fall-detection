@@ -35,15 +35,13 @@ uint8_t print_wakeup_reason(void)
 
 void go_sleep(void)
 {
+    if (!prepare_fall_detection_sleep())
+        return;
     esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 0);
-
-    esp_sleep_enable_ext1_wakeup(1ULL << FALL_INT_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
 
     rtc_gpio_pulldown_dis(WAKEUP_GPIO);
     rtc_gpio_pullup_en(WAKEUP_GPIO);
 
-    rtc_gpio_pullup_en(FALL_INT_PIN);
-    rtc_gpio_pulldown_dis(FALL_INT_PIN);
 
     esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
     Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +

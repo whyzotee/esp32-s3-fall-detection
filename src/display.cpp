@@ -1,10 +1,14 @@
 #include <display.h>
-#include <HT_SSD1306Wire.h>
+#include <SSD1306Wire.h>
 
-static SSD1306Wire display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);
+static SSD1306Wire display(0x3c, SDA_OLED, SCL_OLED, GEOMETRY_128_64, I2C_ONE, 500000);
 
 void setup_display(void)
 {
+    pinMode(RST_OLED, OUTPUT);
+    digitalWrite(RST_OLED, LOW);
+    delay(10);
+    digitalWrite(RST_OLED, HIGH);
     display.init();
     display.setFont(ArialMT_Plain_10);
 }

@@ -66,13 +66,11 @@ void get_location()
 
     while (!GPS.location.isValid())
     {
-        do
+        while (Serial1.available())
         {
-            if (Serial1.available())
-            {
-                GPS.encode(Serial1.read());
-            }
-        } while (GPS.charsProcessed() < 500);
+            GPS.encode(Serial1.read());
+        }
+        delay(1);
 
         if ((millis() - start_1) > 1 * 1000)
         {

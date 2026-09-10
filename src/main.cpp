@@ -5,10 +5,15 @@
 #include <gnss.h>
 #include <lora_wan.h>
 #include <deep_sleep.h>
+#include <fall_detection.h>
 
 // void vGNSSTask(void *parameters);
 
 uint8_t wake_status = 0;
+// true: send a simulated walking location periodically without ESP32 sleep.
+// false: normal GPS acquisition, uplink, then 15-minute deep sleep.
+constexpr bool LORA_DEBUG = true;
+constexpr uint32_t LORA_DEBUG_INTERVAL_MS = 15000;
 // int count1 = 0;
 // int count2 = 0;
 
@@ -19,9 +24,12 @@ void setup()
     setCpuFrequencyMhz(80);
 
     Serial.begin(115200);
+    Serial.printf("\nLoRa debug: %s\n", LORA_DEBUG ? "ON (no sleep)" : "OFF");
     // delay(5000);
 
     wake_status = print_wakeup_reason();
+
+    setup_fall_detection();
 
     setup_gnss();
     setup_lora_wan_app();
@@ -45,7 +53,7 @@ void setup()
 void loop()
 {
     // handle_ota();
-    enter_lora_wan_app(wake_status);
+    enter_lora_wan_app(wake_status, LORA_DEBUG, LORA_DEBUG_INTERVAL_MS);
 }
 
 // void vGNSSTask(void *parameters)

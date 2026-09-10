@@ -15,13 +15,10 @@
       "-DWIFI_LORA_32_V4",
       "-DRADIO_CHIP_SX1262",
       "-DLORA_ENABLED",
-      "-DACTIVE_REGION=LORAMAC_REGION_EU868",
       "-DLORAWAN_PREAMBLE_LENGTH=8",
       "-DLORAWAN_DEVEUI_AUTO=CUSTOM",
       "-DUSE_NONE_PA   ",
-      "-DHELTEC_WIFI_LORA_32_V4 ",
-      "-DLoRaWAN_DEBUG_LEVEL=0",
-      "-DGPIO_PIN_COUNT=40"
+      "-DHELTEC_WIFI_LORA_32_V4 "
     ],
     "f_cpu": "240000000L",
     "f_flash": "80000000L",

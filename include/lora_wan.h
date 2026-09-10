@@ -1,9 +1,8 @@
 #ifndef LORAWAN_H
 #define LORAWAN_H
 
-#include <WiFi.h>
-#include <LoRaWan_APP.h>
-// #include <RadioLib.h>
+#include <Arduino.h>
+#include <fall_detection.h>
 
 #define LoRa_NSS 8
 #define LoRa_SCK 9
@@ -14,9 +13,8 @@
 #define DIO1 14
 
 #define BTN_INT_PIN 0
-#define FALL_INT_PIN GPIO_NUM_6
 
-void setup_lora_wan_app(void);
-void enter_lora_wan_app(uint8_t wake_status);
+bool setup_lora_wan_app(void);
+void enter_lora_wan_app(uint8_t wake_status, bool debug, uint32_t debug_interval_ms);
 
 #endif
