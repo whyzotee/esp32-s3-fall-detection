@@ -2,15 +2,14 @@
 #define FALL_DETECTION_H
 
 #include <Arduino.h>
+#include <board_pins.h>
 
-constexpr int ADXL345_SDA_PIN = 4;
-constexpr int ADXL345_SCL_PIN = 7;
-constexpr gpio_num_t FALL_INT_PIN = GPIO_NUM_6;
+constexpr gpio_num_t FALL_INT_PIN = Board::accelInt1;
 
 // Hardware free-fall is a suspected fall, not a validated human-fall classifier.
-// THRESH_FF: 62.5 mg/LSB; TIME_FF: 5 ms/LSB.
-constexpr uint8_t FALL_THRESHOLD = 6; // 375 mg on EACH axis
-constexpr uint8_t FALL_DURATION = 30; // 150 ms
+// ADXL362: +/-2g (1 mg/LSB), 100 Hz (10 ms/sample).
+constexpr uint16_t FALL_THRESHOLD_MG = 375;
+constexpr uint16_t FALL_DURATION_SAMPLES = 15; // 150 ms
 
 bool setup_fall_detection();
 void update_fall_detection(bool debug);
