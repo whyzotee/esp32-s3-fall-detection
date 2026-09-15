@@ -1,377 +1,161 @@
 #include <Arduino.h>
-#include <TinyGPS++.h>
-#include <driver/rtc_io.h>
 #include <RadioLib.h>
-#include <Preferences.h>
 #include <SPI.h>
-#include <math.h>
-
-#include <gnss.h>
+#include <app_config.h>
+#include <board_pins.h>
 #include <lora_wan.h>
+#include <lorawan_storage.h>
 
-/* --- Setup Key --- */
-uint32_t devAddr = (uint32_t)0x00000000;
-uint8_t nwkSKey[] = {};
-uint8_t appSKey[] = {};
-uint8_t devEui[] = {};
-uint8_t appEui[] = {};
-uint8_t appKey[] = {};
+#if __has_include(<lorawan_credentials.h>)
+#include <lorawan_credentials.h>
+#else
+#include <lorawan_credentials.example.h>
+#endif
 
-// /* --- Settings --- */
-static constexpr uint32_t appTxDutyCycle = 900000;
-static constexpr uint8_t appPort = 2;
-static SX1262 radio = new Module(LoRa_NSS, DIO1, LoRa_RST, LoRa_BUSY);
-// Preserve the original channel-0-only configuration (923.2 MHz).
-static LoRaWANBand_t loraBand = [] {
+namespace {
+SX1262 radio = new Module(Board::radioCs, Board::radioDio1, Board::radioReset, Board::radioBusy);
+// Preserve the deployed channel-0-only configuration (923.2 MHz).
+LoRaWANBand_t loraBand = [] {
     LoRaWANBand_t band = AS923;
     band.txFreqs[1].freq = 0;
     return band;
 }();
-static LoRaWANNode node(&radio, &loraBand);
-static Preferences storage;
-static bool ready = false;
-static bool attempted = false;
-static uint32_t lastAttempt = 0;
-static uint32_t reservedCounter = 0;
-static uint8_t appData[17];
-static size_t appDataSize = 0;
+LoRaWANNode node(&radio, &loraBand);
+LoRaStorage storage;
+bool ready = false;
+bool radioReady = false;
+uint8_t deviceIdentity[32];
 
-// One atomic NVS blob: credentials/nonces and MAC state must match.
-struct SavedSession
+void buildIdentity()
 {
-    uint8_t nonces[RADIOLIB_LORAWAN_NONCES_BUF_SIZE];
-    uint8_t session[RADIOLIB_LORAWAN_SESSION_BUF_SIZE];
-};
-
-// RadioLib 7.6.0 serialization (version pinned in platformio.ini).
-static uint32_t nextCounter(const uint8_t *session)
-{
-    const uint8_t *p = session + RADIOLIB_LORAWAN_SESSION_FCNT_UP;
-    return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+    memcpy(deviceIdentity, &LoRaCredentials::joinEui, 8);
+    memcpy(deviceIdentity + 8, &LoRaCredentials::devEui, 8);
+    memcpy(deviceIdentity + 16, LoRaCredentials::appKey, 16);
+}
 }
 
-static void updateSessionChecksum(uint8_t *session)
+void sleep_lora_radio()
 {
-    uint16_t checksum = 0;
-    for (size_t i = 0; i < RADIOLIB_LORAWAN_SESSION_SIGNATURE; i += 2)
-    {
-        uint16_t word = uint16_t(session[i]) << 8;
-        if (i + 1 < RADIOLIB_LORAWAN_SESSION_SIGNATURE)
-            word |= session[i + 1];
-        checksum ^= word;
-    }
-    session[RADIOLIB_LORAWAN_SESSION_SIGNATURE] = checksum;
-    session[RADIOLIB_LORAWAN_SESSION_SIGNATURE + 1] = checksum >> 8;
+    if (radioReady) radio.sleep();
 }
 
-// Only repair the known pre-fix ABP layout, after RadioLib has validated
-// both buffer checksums and the Nonces configuration. Never change counters.
-static bool repairLegacySession(SavedSession &saved)
+uint32_t lora_wait_ms()
 {
-    const uint8_t *s = saved.session;
-    if (s[RADIOLIB_LORAWAN_SESSION_NONCES_SIGNATURE] != 0 ||
-        s[RADIOLIB_LORAWAN_SESSION_NONCES_SIGNATURE + 1] != 0 ||
-        s[RADIOLIB_LORAWAN_SESSION_VERSION] != 0 ||
-        s[RADIOLIB_LORAWAN_SESSION_STATUS] != RADIOLIB_LORAWAN_SESSION_ACTIVE ||
-        memcmp(s + RADIOLIB_LORAWAN_SESSION_APP_SKEY, appSKey, 16) != 0 ||
-        memcmp(s + RADIOLIB_LORAWAN_SESSION_NWK_SENC_KEY, nwkSKey, 16) != 0 ||
-        memcmp(s + RADIOLIB_LORAWAN_SESSION_FNWK_SINT_KEY, nwkSKey, 16) != 0 ||
-        memcmp(s + RADIOLIB_LORAWAN_SESSION_SNWK_SINT_KEY, nwkSKey, 16) != 0)
-        return false;
-    for (unsigned i = 0; i < 4; ++i)
-        if (s[RADIOLIB_LORAWAN_SESSION_DEV_ADDR + i] != uint8_t(devAddr >> (8 * i)))
-            return false;
-    // The old activation signed an entirely zero-filled Nonces buffer.
-    for (size_t i = RADIOLIB_LORAWAN_NONCES_DEV_NONCE;
-         i < RADIOLIB_LORAWAN_NONCES_SIGNATURE; ++i)
-        if (saved.nonces[i] != 0)
-            return false;
-    memcpy(saved.session + RADIOLIB_LORAWAN_SESSION_NONCES_SIGNATURE,
-           saved.nonces + RADIOLIB_LORAWAN_NONCES_SIGNATURE, 2);
-    updateSessionChecksum(saved.session);
-    return true;
+    return ready ? node.timeUntilUplink() : 0;
 }
 
-static bool saveSession(bool reserveUplink)
-{
-    SavedSession saved;
-    memcpy(saved.nonces, node.getBufferNonces(), sizeof(saved.nonces));
-    memcpy(saved.session, node.getBufferSession(), sizeof(saved.session));
-    uint32_t counter = nextCounter(saved.session);
-    if (counter == UINT32_MAX)
-        return false;
-    if (reserveUplink)
-        ++counter;
-    // Never roll back a counter reserved before a possibly transmitted packet.
-    if (counter < reservedCounter)
-        counter = reservedCounter;
-    for (unsigned i = 0; i < 4; ++i)
-        saved.session[RADIOLIB_LORAWAN_SESSION_FCNT_UP + i] = counter >> (8 * i);
-    updateSessionChecksum(saved.session);
-    if (storage.putBytes("session", &saved, sizeof(saved)) != sizeof(saved))
-        return false;
-    reservedCounter = counter;
-    return true;
-}
-
-extern TinyGPSPlus GPS;
-
-extern int32_t rtc_lat;
-extern int32_t rtc_lon;
-extern uint8_t rtc_hour;
-extern uint8_t rtc_minute;
-extern uint8_t rtc_second;
-extern uint8_t rtc_centisecond;
-
-static void prepareTxFrame(uint8_t status, bool debug)
-{
-    uint8_t hour, second, minute, centisecond;
-    float lat, lon;
-
-    if (debug)
-    {
-        // Synthetic starting point, not a GPS fix. Continue a walking track.
-        static double walkingLat = 13.7563;
-        static double walkingLon = 100.5018;
-        static double heading = 0.0;
-        static uint32_t lastStep = 0;
-        static bool started = false;
-        uint32_t now = millis();
-        if (started)
-        {
-            double seconds = uint32_t(now - lastStep) / 1000.0;
-            double speed = 0.9 + (esp_random() % 601) / 1000.0; // 0.9–1.5 m/s
-            heading += (int(esp_random() % 6101) - 3050) / 100.0 * DEG_TO_RAD;
-            double distance = speed * seconds;
-            walkingLat += distance * cos(heading) / 111320.0;
-            walkingLon += distance * sin(heading) / (111320.0 * cos(walkingLat * DEG_TO_RAD));
-        }
-        started = true;
-        lastStep = now;
-        lat = walkingLat;
-        lon = walkingLon;
-        // Synthetic elapsed time; never presented as actual GNSS time.
-        uint32_t seconds = now / 1000;
-        hour = (seconds / 3600) % 24;
-        minute = (seconds / 60) % 60;
-        second = seconds % 60;
-        centisecond = (now % 1000) / 10;
-        Serial.print("[SIMULATED WALK]");
-    }
-    else if (status == 1 || status == 2)
-    {
-        // if (rtc_lat == 0 && rtc_lon == 0)
-        //     get_location();
-
-        lat = rtc_lat / 1e6f;
-        lon = rtc_lon / 1e6f;
-        hour = rtc_hour;
-        minute = rtc_minute;
-        second = rtc_second;
-        centisecond = rtc_centisecond;
-    }
-    else
-    {
-        if (!debug)
-            get_location();
-        lat = GPS.location.lat();
-        lon = GPS.location.lng();
-        hour = GPS.time.hour();
-        minute = GPS.time.minute();
-        second = GPS.time.second();
-        centisecond = GPS.time.centisecond();
-    }
-
-    Serial.printf(" %02d:%02d:%02d.%02d", hour, minute, second, centisecond);
-    Serial.print(", LAT: ");
-    Serial.print(lat, 6);
-    Serial.print(", LON: ");
-    Serial.print(lon, 6);
-    Serial.printf(", STATUS: %d", status);
-    Serial.println();
-
-    unsigned char *puc;
-
-    appDataSize = 0;
-    appData[appDataSize++] = status;
-
-    puc = (unsigned char *)(&lat);
-    appData[appDataSize++] = puc[0];
-    appData[appDataSize++] = puc[1];
-    appData[appDataSize++] = puc[2];
-    appData[appDataSize++] = puc[3];
-    puc = (unsigned char *)(&lon);
-    appData[appDataSize++] = puc[0];
-    appData[appDataSize++] = puc[1];
-    appData[appDataSize++] = puc[2];
-    appData[appDataSize++] = puc[3];
-
-    puc = (unsigned char *)(&hour);
-    appData[appDataSize++] = puc[0];
-    appData[appDataSize++] = 0;
-
-    puc = (unsigned char *)(&minute);
-    appData[appDataSize++] = puc[0];
-    appData[appDataSize++] = 0;
-
-    puc = (unsigned char *)(&second);
-    appData[appDataSize++] = puc[0];
-    appData[appDataSize++] = 0; // Preserve decoder's two-byte time fields.
-
-    puc = (unsigned char *)(&centisecond);
-    appData[appDataSize++] = puc[0];
-    appData[appDataSize++] = 0;
-}
 bool setup_lora_wan_app()
 {
     ready = false;
-    storage.end();
-    SPI.begin(LoRa_SCK, LoRa_MISO, LoRa_MOSI, LoRa_NSS);
+    buildIdentity();
+
+    SPI.begin(Board::radioSck, Board::radioMiso, Board::radioMosi, Board::radioCs);
     // SX1262 with DIO3-controlled 1.8 V TCXO; DIO2 controls RF switch.
     int16_t state = radio.begin(923.2, 125.0, 9, 5, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, 14, 8, 1.8);
-    Serial.printf("[LoRa] radio init: %d\n", state);
+    Serial.printf("[LoRa] Radio init: %d\n", state);
     if (state != RADIOLIB_ERR_NONE)
         return false;
-    state = node.beginABP(devAddr, nullptr, nullptr, nwkSKey, appSKey);
+    radioReady = true;
+
+    state = node.beginOTAA(LoRaCredentials::joinEui, LoRaCredentials::devEui, nullptr, LoRaCredentials::appKey);
     if (state != RADIOLIB_ERR_NONE)
-        return false;
-    if (!storage.begin("radiolib-abp", false))
     {
-        Serial.println("[LoRa] NVS unavailable; transmission disabled");
+        Serial.printf("[LoRa] OTAA init failed: %d\n", state);
         return false;
     }
-    if (storage.isKey("session"))
-    {
-        SavedSession saved;
-        if (storage.getBytesLength("session") != sizeof(saved) ||
-            storage.getBytes("session", &saved, sizeof(saved)) != sizeof(saved))
-        {
-            Serial.println("[LoRa] Saved session size/read failed; no counter reset");
-            return false;
-        }
-        state = node.setBufferNonces(saved.nonces);
-        if (state != RADIOLIB_ERR_NONE)
-        {
-            Serial.printf("[LoRa] Nonces restore failed: %d; no counter reset\n", state);
-            return false;
-        }
-        state = node.setBufferSession(saved.session);
-        if (state == RADIOLIB_ERR_SESSION_DISCARDED && repairLegacySession(saved))
-        {
-            state = node.setBufferSession(saved.session);
-            if (state == RADIOLIB_ERR_NONE)
-                Serial.printf("[LoRa] Recovered legacy ABP signature; FCnt preserved: %lu\n",
-                              (unsigned long)nextCounter(saved.session));
-        }
-        if (state != RADIOLIB_ERR_NONE)
-        {
-            Serial.printf("[LoRa] Session restore failed: %d; no counter reset\n", state);
-            return false;
-        }
-        reservedCounter = nextCounter(saved.session);
-    }
-    else
-        Serial.println("[LoRa] New ABP session: ensure server frame counter matches this migration");
-    // Populate version/mode/plan/key checksum BEFORE activateABP signs Nonces
-    // and links that signature into the new session (RadioLib 7.6.0).
+
+    // Populate version/mode/plan/key checksum before storage operations
     node.getBufferNonces();
-    state = node.activateABP();
-    // Activation has negative SUCCESS status codes; unlike sendReceive(),
-    // a negative result alone does not indicate failure here.
-    if (state != RADIOLIB_ERR_NONE &&
-        state != RADIOLIB_LORAWAN_NEW_SESSION &&
-        state != RADIOLIB_LORAWAN_SESSION_RESTORED)
+
+    LoRaStorage::Restore restore = storage.begin(node, deviceIdentity);
+    if (restore == LoRaStorage::Restore::Error)
     {
-        Serial.printf("[LoRa] ABP activation failed: %d\n", state);
+        Serial.println("[LoRa] Nonce storage invalid or identity changed; join disabled (no automatic reset)");
         return false;
     }
-    Serial.printf("[LoRa] ABP ready: %s (%d)\n",
-                  state == RADIOLIB_LORAWAN_NEW_SESSION ? "new session" :
-                  (state == RADIOLIB_LORAWAN_SESSION_RESTORED ? "session restored" : "already active"), state);
+
+    if (restore == LoRaStorage::Restore::Session)
+    {
+        state = node.activateOTAA();
+        if (state == RADIOLIB_LORAWAN_SESSION_RESTORED || state == RADIOLIB_ERR_NONE)
+        {
+            Serial.printf("[LoRa] Session restored from RTC (FCntUp: %lu)\n",
+                          (unsigned long)LoRaStorage::nextCounter(node));
+            ready = true;
+        }
+        else
+        {
+            Serial.printf("[LoRa] Session restore activation failed: %d; will re-join\n", state);
+            restore = LoRaStorage::Restore::JoinRequired;
+        }
+    }
+
+    if (restore == LoRaStorage::Restore::Fresh || restore == LoRaStorage::Restore::JoinRequired)
+    {
+        Serial.printf("[LoRa] Initiating OTAA Join (DevEUI: %016llX)...\n",
+                      (unsigned long long)LoRaCredentials::devEui);
+        if (!storage.reserveJoin(node))
+        {
+            Serial.println("[LoRa] Failed to reserve DevNonce; aborting join");
+            return false;
+        }
+
+        state = node.activateOTAA();
+        if (state == RADIOLIB_LORAWAN_NEW_SESSION)
+        {
+            Serial.println("[LoRa] OTAA Join successful (new session)");
+            ready = storage.saveJoined(node);
+        }
+        else
+        {
+            Serial.printf("[LoRa] OTAA Join failed: %d\n", state);
+            return false;
+        }
+    }
+
     node.setADR(false);
     // DR3 (SF9/BW125) accommodates the 17-byte payload with AS923 dwell time.
-    if (node.setDatarate(3) != RADIOLIB_ERR_NONE)
+    if (node.setDatarate(AppConfig::uplinkDataRate) != RADIOLIB_ERR_NONE)
         return false;
-    ready = saveSession(false);
+
     return ready;
 }
 
-void enter_lora_wan_app(uint8_t wake_status, bool debug, uint32_t debug_interval_ms)
+LoRaResult send_lora_telemetry(const Telemetry &sample)
 {
-    update_fall_detection(debug);
-    // Keep GPS parsing while awake, including debug mode with no GPS fix.
-    while (Serial1.available())
-        GPS.encode(Serial1.read());
-    // Pending events retry at 15 seconds even in normal mode while awake.
-    uint32_t interval = debug ? max(debug_interval_ms, uint32_t(1000)) :
-                        (fall_detection_pending() ? 15000 : appTxDutyCycle);
-    if (attempted && uint32_t(millis() - lastAttempt) < interval)
-    {
-        delay(10);
-        return;
-    }
-    attempted = true;
-    lastAttempt = millis();
-    if (!ready && !setup_lora_wan_app())
-    {
-        Serial.println("[LoRa] Initialization failed; will retry next interval");
-        return;
-    }
-    if (node.timeUntilUplink() > 0)
-    {
-        Serial.println("[LoRa] Duty-cycle hold; retry next interval");
-        return;
-    }
-    if (node.setDatarate(debug ? 5 : 3) != RADIOLIB_ERR_NONE)
-    {
-        Serial.println("[LoRa] Could not set data rate; transmission skipped");
-        return;
-    }
-    prepareTxFrame(fall_detection_pending() ? 2 : (debug ? 0 : wake_status), debug);
-    // GPS acquisition may block; capture any hardware-latched event before TX.
-    update_fall_detection(false);
-    const bool sendingFall = fall_detection_pending();
-    if (sendingFall)
-        appData[0] = 2;
-    // Commit the NEXT counter before RF transmission, including sudden power loss.
-    if (!saveSession(true))
-    {
+    LoRaResult result{};
+    result.code = RADIOLIB_ERR_UNKNOWN;
+    if (!ready) return result;
+    // Same PHY settings in debug and production.
+    result.code = node.setDatarate(AppConfig::uplinkDataRate);
+    if (result.code != RADIOLIB_ERR_NONE) return result;
+
+    uint8_t payload[TELEMETRY_PAYLOAD_SIZE];
+    encode_telemetry(sample, payload);
+    if (!storage.reserveUplink(node)) {
         Serial.println("[LoRa] Could not reserve frame counter; transmission skipped");
+        result.code = RADIOLIB_ERR_UNKNOWN;
         ready = false;
-        return;
+        return result;
     }
-    Serial.printf("[LoRa] TX port=%u bytes=%u FCnt=%lu GPS=%s\n", appPort,
-                  unsigned(appDataSize), (unsigned long)nextCounter(node.getBufferSession()),
-                  debug ? "SIMULATED" : (GPS.location.isValid() ? "valid" : "no fix"));
-    int16_t state = node.sendReceive(appData, appDataSize, appPort, false);
-    if (state >= RADIOLIB_ERR_NONE && sendingFall)
-        acknowledge_fall_detection();
-    Serial.printf("[LoRa] sendReceive=%d (0=no downlink, 1/2=RX window, negative=error)\n", state);
-    if (!saveSession(false))
-    {
-        Serial.println("[LoRa] Session save failed; reserved uplink counter remains in NVS");
+
+    Serial.printf("[LoRa] TX port=%u bytes=%u FCnt=%lu status=%u\n",
+                  AppConfig::uplinkPort, unsigned(sizeof(payload)),
+                  (unsigned long)LoRaStorage::nextCounter(node), sample.status);
+
+    LoRaWANEvent_t event{};
+    result.downlinkLength = sizeof(result.downlink);
+    result.code = node.sendReceive(payload, sizeof(payload), AppConfig::uplinkPort,
+                                   result.downlink, &result.downlinkLength, false,
+                                   nullptr, &event);
+    result.downlinkPort = event.fPort;
+    if (result.code <= 0) result.downlinkLength = 0;
+    result.sessionSaved = storage.saveUplink(node);
+    if (!result.sessionSaved) {
+        Serial.println("[LoRa] Session save failed");
         ready = false;
     }
-    if (debug)
-    {
-        Serial.printf("[LoRa] Debug: next attempt in %lu ms; ESP32 stays awake\n", (unsigned long)interval);
-        return;
-    }
-    uint32_t sleepMs = max(appTxDutyCycle, uint32_t(node.timeUntilUplink()));
-    // Capture events arriving during TX/RX; don't sleep over an unsent event.
-    if (!prepare_fall_detection_sleep())
-        return;
-    radio.sleep();
-    Serial1.end();
-    pinMode(VGNSS_CTRL, OUTPUT);
-    digitalWrite(VGNSS_CTRL, HIGH);
-    pinMode(Vext, OUTPUT);
-    digitalWrite(Vext, HIGH);
-    pinMode(GNSS_TX, INPUT);
-    pinMode(GNSS_RX, INPUT);
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_INT_PIN, 0);
-    esp_sleep_enable_timer_wakeup(uint64_t(sleepMs) * 1000);
-    Serial.printf("[LoRa] Deep sleep for %lu ms\n", (unsigned long)sleepMs);
-    Serial.flush();
-    esp_deep_sleep_start();
+    Serial.printf("[LoRa] sendReceive=%d (0=no downlink, 1/2=RX window, negative=error)\n",
+                  result.code);
+    return result;
 }
