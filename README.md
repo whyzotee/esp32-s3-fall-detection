@@ -1,10 +1,15 @@
 # ESP32-S3 LoRaWAN tracker
 
-The radio uses RadioLib 7.6.0 with SX1262, ABP, AS923, Class A,
+The radio uses RadioLib 7.7.1 with SX1262, OTAA (Over-The-Air Activation), AS923, Class A,
 unconfirmed uplinks on port 2. No Heltec activation license or Serial
-provisioning dialogue is used. The OLED uses the ThingPulse SSD1306 driver.
+provisioning dialogue is used. All debugging output is sent via Serial Monitor (115200 baud).
 
-ADXL345 wiring, thresholds and testing: [docs/ADXL345.md](docs/ADXL345.md).
+Target: [Heltec Wireless Shell V3](https://heltec.org/project/wireless-shell-v3/)
+(HTIT-Wsh_V3), on the custom PCB shown in `docs/schematic`.
+The build uses the framework's existing `heltec_wireless_shell_v3` variant;
+custom peripheral wiring stays in `include/board_pins.h`.
+Pin mapping and upload instructions: [docs/HardwareV3.md](docs/HardwareV3.md).
+ADXL362 wiring, thresholds and testing: [docs/ADXL362.md](docs/ADXL362.md).
 Sensor events override debug's normal status with status 2, while debug
 coordinates remain simulated.
 
@@ -20,48 +25,132 @@ constexpr bool LORA_DEBUG = true;
 constexpr uint32_t LORA_DEBUG_INTERVAL_MS = 15000;
 ```
 
-The first uplink is attempted immediately after initialization. Later attempts
-start every 15 seconds, subject to radio errors and LoRaWAN duty-cycle limits.
-The ESP32 stays awake, including on initialization/storage failures; GPS is
-not required. Debug uses DR5 (SF7/BW125), status 0, and synthetic coordinates
+The first uplink is attempted after initialization and join. Both modes complete
+the Class A radio transaction, save the session in RTC and enter real deep sleep.
+Debug normally sleeps for 15 seconds; boot and radio time add to the TX interval.
+Initialization/storage/radio failures sleep before retrying (normally 60 seconds).
+GPS is not required. Debug uses the production DR3 (SF9/BW125), with synthetic coordinates
 starting at 13.756300, 100.501800. Each step moves at 0.9–1.5 m/s with a gradual
 random turn of up to 30.5 degrees. At 15 seconds this is about 13.5–22.5 metres.
-Rebooting starts the simulated track again. This is a free walking simulation,
-not a route constrained to roads. Its timestamp is elapsed boot time, not UTC.
+Deep-sleep wakes continue the track from RTC, including time spent asleep.
+Reset or power loss starts the simulated track again. This is a free walking simulation,
+not a route constrained to roads. Its timestamp is elapsed simulation time, not UTC.
 Serial labels it `[SIMULATED WALK]`; the existing payload has no simulation bit,
 so gateway/application data must be treated as test data while debug is enabled.
 
 Set `LORA_DEBUG = false` for deployment: acquire GPS, send at DR3 (SF9/BW125),
 complete both receive windows, then deep sleep for 15 minutes (or longer if the
-MAC duty-cycle timer requires it). Button GPIO0 and fall GPIO6 retain the
-original low/high wakeup polarities. Initialization failures retry while awake.
+MAC duty-cycle timer requires it). Button GPIO0 and fall GPIO7 use the
+original low/high wakeup polarities. Both modes validate button holds and handle
+real sensor events; an EXT0 wake alone does not mean SOS.
 
-## Gateway and first migration
+### Button and soft power-off
 
-The initial channel configuration preserves the old channel-0-only mask:
-923.2 MHz. Match the network's AS923 plan and ABP settings; debug requires the
-gateway to receive SF7/BW125. A normal multi-channel LoRaWAN gateway can receive
-this, but a receiver locked to another spreading factor will need adjustment.
-Network MAC commands can subsequently update channels.
+Actions are selected on debounced release, so a power-off hold does not also send SOS.
 
-The existing device address and ABP keys remain in `src/lora_wan.cpp`.
-RadioLib cannot import the old Heltec frame counter automatically. Before the
-first migration, establish a matching fresh ABP session/counter on the server
-according to that server's procedure. Do not permanently disable counter checks.
+| Current state | Hold before release | Action |
+| --- | --- | --- |
+| On | Less than 3 seconds | No button event |
+| On | 3 to less than 5 seconds | Queue SOS (status 1) |
+| On | 5 seconds or longer | Soft power-off |
+| Off | Less than 3 seconds | Return to off sleep, without starting GPS/LoRa |
+| Off | 3 seconds or longer | Power on |
 
-Session state is stored as a single NVS blob in namespace `radiolib-abp`.
-Before each uplink the next frame counter is committed, so a power cut during
-transmission skips a counter instead of reusing it. The complete resulting MAC
-state is saved after the receive windows. A power cut inside that window may
-lose the latest downlink state, but preserves the uplink counter reservation.
-If storage fails, transmission is skipped; incompatible/corrupt saved sessions
-are not silently reset. Erasing NVS/flash removes this state and requires server
-session coordination again. The serialized format is tied to the pinned
-RadioLib version; review persistence before upgrading it.
+Soft-off disables timer and fall wakeups and waits only for GPIO0. It is deep
+sleep, not a physical battery disconnect; always-powered circuits still draw current.
+Hold time starts when firmware can read the button after wake, so allow a little
+extra time for boot. Holding GPIO0 during reset/power connection can enter the
+ESP32 bootloader instead. Reset/power loss clears the RTC soft-off state.
 
-The 17-byte payload remains compatible with `decoder/TTNDecoder.js`. Latitude
-and longitude are little-endian float32. Time fields retain their two-byte
-slots, with the previously undefined second byte now zero.
+A background task debounces the button during GPS acquisition and radio blocking
+calls. Power-off is applied at the next safe service point, not midway through RF.
+SOS stays pending across deep sleep until the local send succeeds (unconfirmed
+uplinks do not guarantee gateway receipt). If fall and SOS are pending together,
+fall is sent first and SOS retries on a short timer. No extra NVS writes are used.
+
+### Application-controlled Low Power Mode
+
+Normal production sleep remains 15 minutes. A valid application downlink on
+FPort `10` containing exactly `0x01` (Base64 `AQ==`) changes the next production
+sleep to one hour. See [MQTT contract](docs/mqtt-payload.md). Other ports, commands
+and payload lengths are ignored; repeated enable commands are safe.
+
+The mode is retained in RTC across deep sleep with no NVS writes. Reset or power
+loss returns to the normal 15-minute mode. No disable command is defined yet.
+Low Power also sleeps for one hour in debug, matching production behavior.
+Button and fall wakeups remain enabled in Low Power Mode.
+
+This Class A device receives queued commands in the receive windows after an
+uplink, not while sleeping. An API success only confirms broker acceptance; it
+does not prove the device has applied the command. The unchanged 17-byte uplink
+has no Low Power status field. The one-hour interval is sleep time; GPS acquisition
+and radio processing add to the actual time between reports.
+
+## Pinned library versions
+
+- [RadioLib 7.7.1](https://github.com/jgromes/RadioLib/releases/tag/7.7.1)
+- [TinyGPSPlus 1.1.0](https://github.com/mikalhart/TinyGPSPlus/blob/master/library.properties)
+
+Exact versions are pinned in `platformio.ini` for reproducible builds.
+
+## Code layout
+
+- `src/main.cpp`: debug flag, interval, and startup order.
+- `include/board_pins.h`: custom V3 pin map.
+- `src/board_pins.cpp`: shared VEXT power and inactive actuator levels.
+- `src/debug_mode.cpp`: walking simulation and Serial monitor debug diagnostics.
+- `src/device_button.cpp`: debounced holds, pending SOS and RTC soft-off state.
+- `src/telemetry.cpp`: real/cached GPS readings and the 17-byte encoder.
+- `src/tracker_app.cpp`: wake-cycle orchestration, event priority, downlink dispatch and retry timing.
+- `src/lora_wan.cpp`: radio, OTAA activation, packet exchange and session persistence calls; no sleep scheduling.
+- `src/deep_sleep.cpp`: the only owner of ESP32 deep-sleep entry, wake sources and peripheral shutdown.
+- `src/lorawan_storage.cpp`: RTC session storage and durable OTAA nonce storage.
+- `src/fall_detection.cpp`: ADXL362 SPI event detection and wakeup handling.
+
+`main.cpp` initializes components, then calls `TrackerApp::runCycle()`.
+The application calls `DeepSleep::timed()` after handling button actions; the
+button module calls `DeepSleep::powerOff()` after recording its RTC off state.
+Both paths share peripheral shutdown. The sensor driver only arms its own EXT1
+wakeup; it never enters sleep. The radio returns a `LoRaResult` and does not
+interpret application commands, acknowledge sensor events or manage buttons.
+There is no separate awake-only scheduling loop or unused `go_sleep()` path.
+
+With `LORA_DEBUG = false`, VEXT is enabled for GPS acquisition: L76L VCC
+uses this shared rail. VEXT is switched off during deep sleep. ADXL362 remains
+on always-on 3.3 V. Debug skips GNSS initialization; VEXT stays off.
+
+## OTAA Provisioning and Session Persistence
+
+Device credentials (JoinEUI, DevEUI, AppKey) reside in `include/lorawan_credentials.h`
+(gitignored; copy from `include/lorawan_credentials.example.h`).
+
+Session state and frame counters are stored in CRC-checked RTC memory, retained
+across deep sleep. Regular uplinks, including debug uplinks, do not write NVS.
+
+- **DevNonce reservation**: Before transmitting a Join-Request, the next DevNonce is committed
+  to NVS, preventing DevNonce reuse per LoRaWAN 1.0.4 specifications.
+- **Session restore**: After deep sleep, the joined session is restored from RTC without
+  transmitting another Join-Request, preserving battery life and gateway bandwidth.
+- **After a successful join**: Updated nonce state is saved to NVS. A successful
+  join therefore makes two NVS writes; a failed join normally makes one.
+- **Power loss or reset**: Power-on, software resets and watchdog resets require a
+  new OTAA join. Old session counters are never restored from flash.
+- **Interrupted uplink or invalid RTC**: Rejoin using durable nonce state instead
+  of resuming a possibly stale session. A gateway with a working downlink is required.
+- **Migration**: Existing `lorawan-otaa/state` records retain their nonce history;
+  their old sessions are ignored. The next join replaces the record with nonce-only
+  state (the legacy record size is retained for compatibility).
+- **Invalid NVS or changed credentials**: Transmission stops without automatically
+  erasing nonce history. Do not erase NVS to fix a join error without coordinating
+  device reprovisioning with the network server.
+
+RTC is not persistent across power loss. Saving nonces to RTC alone would risk
+DevNonce reuse, so the small number of NVS writes around joins is intentional.
+Keep RTC memory powered during deep sleep (the ESP32 default for `RTC_DATA_ATTR`).
+Run `node test/session_recovery.cjs` for the host-side storage lifecycle tests.
+
+The 17-byte payload format remains unchanged and compatible with `decoder/TTNDecoder.js`.
+Latitude and longitude are little-endian float32.
 
 ## Payload decoder (TTN / The Things Stack)
 
