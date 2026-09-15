@@ -1,0 +1,72 @@
+#include <Arduino.h>
+#include <tracker_app.h>
+#include <app_config.h>
+#include <debug_mode.h>
+#include <deep_sleep.h>
+#include <device_button.h>
+#include <fall_detection.h>
+#include <lora_wan.h>
+#include <power_mode.h>
+#include <telemetry.h>
+
+namespace {
+uint32_t reportInterval()
+{
+    if (PowerMode::enabled()) return PowerMode::reportInterval();
+    return DebugMode::enabled() ? DebugMode::interval() : PowerMode::reportInterval();
+}
+
+[[noreturn]] void sleepFor(uint32_t durationMs)
+{
+    DeviceButton::service();
+    DeepSleep::timed(durationMs);
+}
+
+void handleDownlink(const LoRaResult &result)
+{
+    if (result.code <= 0 || result.downlinkLength == 0) return;
+    if (PowerMode::handleDownlink(result.downlinkPort, result.downlink, result.downlinkLength))
+        Serial.println("[APP] Low Power enabled: interval 3600000 ms (RTC only)");
+    else
+        Serial.printf("[APP] Ignored downlink: port=%u bytes=%u\n",
+                      result.downlinkPort, unsigned(result.downlinkLength));
+}
+}
+
+namespace TrackerApp {
+[[noreturn]] void runCycle()
+{
+    DeviceButton::service();
+    const bool debug = DebugMode::enabled();
+    update_fall_detection(debug);
+    DebugMode::update(fall_detection_pending());
+
+    if (!setup_lora_wan_app()) {
+        DebugMode::message("LoRa init/join failed");
+        sleepFor(AppConfig::retryInitialMs);
+    }
+    if (lora_wait_ms() > 0)
+        sleepFor(max(uint32_t(1000), lora_wait_ms()));
+
+    const uint8_t status = fall_detection_pending() ? 2 : (DeviceButton::sosPending() ? 1 : 0);
+    Telemetry sample = debug ? DebugMode::walking_sample(status) : read_telemetry(status);
+
+    // Acquisition can block. Capture events that arrived before transmitting.
+    update_fall_detection(false);
+    DeviceButton::service();
+    if (fall_detection_pending()) sample.status = 2;
+    else if (DeviceButton::sosPending()) sample.status = 1;
+
+    const LoRaResult result = send_lora_telemetry(sample);
+    DebugMode::result(result.code);
+    handleDownlink(result);
+    if (result.code >= 0) {
+        if (sample.status == 2) acknowledge_fall_detection();
+        if (sample.status == 1) DeviceButton::acknowledgeSos();
+    }
+
+    const uint32_t interval = result.code < 0 || !result.sessionSaved
+        ? AppConfig::retryInitialMs : reportInterval();
+    sleepFor(max(interval, lora_wait_ms()));
+}
+}

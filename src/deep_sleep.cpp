@@ -1,67 +1,66 @@
 #include <Arduino.h>
+#include <deep_sleep.h>
+#include <app_config.h>
+#include <board_pins.h>
+#include <device_button.h>
+#include <fall_detection.h>
+#include <gnss.h>
+#include <lora_wan.h>
 #include <esp_sleep.h>
 #include <driver/rtc_io.h>
 
-#include <lora_wan.h>
-#include <deep_sleep.h>
-
-uint8_t print_wakeup_reason(void)
+namespace {
+void armButton()
 {
-    esp_sleep_wakeup_cause_t wakeup_reason;
-
-    wakeup_reason = esp_sleep_get_wakeup_cause();
-
-    switch (wakeup_reason)
-    {
-    case ESP_SLEEP_WAKEUP_EXT0:
-        Serial.println("Wakeup caused by external signal using RTC_IO");
-        return 1;
-    case ESP_SLEEP_WAKEUP_EXT1:
-        Serial.println("Wakeup caused by external signal using RTC_CNTL");
-        return 2;
-    case ESP_SLEEP_WAKEUP_TIMER:
-        Serial.println("Wakeup caused by timer");
-        break;
-    case ESP_SLEEP_WAKEUP_ULP:
-        Serial.println("Wakeup caused by ULP program");
-        break;
-    default:
-        Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason);
-        break;
-    }
-
-    return 0;
+    rtc_gpio_pullup_en(Board::button);
+    rtc_gpio_pulldown_dis(Board::button);
+    esp_sleep_enable_ext0_wakeup(Board::button, 0);
 }
 
-void go_sleep(void)
+[[noreturn]] void enter()
 {
-    if (!prepare_fall_detection_sleep())
-        return;
-    esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 0);
-
-    rtc_gpio_pulldown_dis(WAKEUP_GPIO);
-    rtc_gpio_pullup_en(WAKEUP_GPIO);
-
-
-    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-    Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
-                   " Seconds");
-
-    Serial.println("Going to sleep now");
+    sleep_lora_radio();
+    stop_gnss();
+    Board::prepareSleep();
     Serial.flush();
-
-    delay(1000);
-
-    pinMode(Vext, OUTPUT);
-    digitalWrite(Vext, HIGH);
-
-    // pinMode(RADIO_DIO_1, ANALOG);
-    // pinMode(RADIO_NSS, ANALOG);
-    // pinMode(RADIO_RESET, ANALOG);
-    // pinMode(RADIO_BUSY, ANALOG);
-    // pinMode(LORA_CLK, ANALOG);
-    // pinMode(LORA_MISO, ANALOG);
-    // pinMode(LORA_MOSI, ANALOG);
-
     esp_deep_sleep_start();
+    while (true) delay(1000);
+}
+}
+
+namespace DeepSleep {
+void logWakeReason()
+{
+    switch (esp_sleep_get_wakeup_cause()) {
+    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("[WAKE] Button"); break;
+    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("[WAKE] Fall sensor"); break;
+    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("[WAKE] Timer"); break;
+    default: Serial.println("[WAKE] Power-on or reset"); break;
+    }
+}
+
+[[noreturn]] void timed(uint32_t durationMs)
+{
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    // Keep pending events in RTC and retry by timer if EXT1 cannot be armed.
+    if (!prepare_fall_detection_sleep()) {
+        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT1);
+        durationMs = min(durationMs, AppConfig::eventRetryMs);
+    }
+    if (DeviceButton::sosPending())
+        durationMs = min(durationMs, AppConfig::eventRetryMs);
+    armButton();
+    esp_sleep_enable_timer_wakeup(uint64_t(durationMs) * 1000);
+    Serial.printf("[SLEEP] Timer: %lu ms; button/fall wake enabled when available\n",
+                  (unsigned long)durationMs);
+    enter();
+}
+
+[[noreturn]] void powerOff()
+{
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    armButton();
+    Serial.println("[POWER] Off: hold button for 3 seconds and release to start");
+    enter();
+}
 }
