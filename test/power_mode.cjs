@@ -11,23 +11,30 @@ try {
 #include <cassert>
 #include "power_mode.cpp"
 int main() {
-    const uint8_t enable[] = {1};
-    const uint8_t unknown[] = {0};
-    const uint8_t extra[] = {1, 0};
+    const uint8_t enable[] = {0x01, 0x00, 0x0F};
+    const uint8_t disable[] = {0x00, 0x00, 0x00};
+    const uint8_t unknown[] = {0x01, 0x00, 0x01};
+    const uint8_t legacy[] = {0x01};
+    const uint8_t extra[] = {0x01, 0x00, 0x0F, 0x00};
     assert(!PowerMode::enabled());
     assert(PowerMode::reportInterval() == 900000);
-    assert(!PowerMode::handleDownlink(2, enable, 1));
-    assert(!PowerMode::handleDownlink(10, unknown, 1));
-    assert(!PowerMode::handleDownlink(10, extra, 2));
+    assert(!PowerMode::handleDownlink(2, enable, sizeof(enable)));
+    assert(!PowerMode::handleDownlink(10, unknown, sizeof(unknown)));
+    assert(!PowerMode::handleDownlink(10, legacy, sizeof(legacy)));
+    assert(!PowerMode::handleDownlink(10, extra, sizeof(extra)));
     assert(!PowerMode::handleDownlink(10, enable, 0));
-    assert(!PowerMode::handleDownlink(10, nullptr, 1));
+    assert(!PowerMode::handleDownlink(10, nullptr, sizeof(enable)));
     assert(!PowerMode::enabled());
-    assert(PowerMode::handleDownlink(10, enable, 1));
+    assert(PowerMode::handleDownlink(10, enable, sizeof(enable)));
     assert(PowerMode::enabled());
     assert(PowerMode::reportInterval() == 3600000);
-    assert(PowerMode::handleDownlink(10, enable, 1));
-    assert(!PowerMode::handleDownlink(10, unknown, 1));
+    assert(PowerMode::handleDownlink(10, enable, sizeof(enable)));
+    assert(!PowerMode::handleDownlink(10, unknown, sizeof(unknown)));
     assert(PowerMode::reportInterval() == 3600000);
+    assert(PowerMode::handleDownlink(10, disable, sizeof(disable)));
+    assert(!PowerMode::enabled());
+    assert(PowerMode::reportInterval() == 900000);
+    assert(PowerMode::handleDownlink(10, disable, sizeof(disable)));
     // Simulate a cold boot reinitializing RTC data.
     lowPowerMarker = 0;
     assert(PowerMode::reportInterval() == 900000);

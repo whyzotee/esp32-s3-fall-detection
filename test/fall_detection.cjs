@@ -15,6 +15,7 @@ fs.writeFileSync(path.join(dir, 'Arduino.h'), `
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLDOWN 2
+#define INPUT_PULLUP 3
 #define LOW 0
 #define HIGH 1
 using gpio_num_t = int;
@@ -23,8 +24,14 @@ constexpr int ESP_OK=0, ESP_EXT1_WAKEUP_ANY_HIGH=1;
 inline uint32_t now=0;
 inline uint64_t wakeMask=0;
 inline int wakeResult=0;
+inline int toneCalls=0;
 inline void pinMode(int,int) {}
 inline void digitalWrite(int,int) {}
+inline int digitalRead(int) { return LOW; }
+inline void tone(int pin,int frequency,unsigned long duration) {
+    assert(pin==4 && frequency==2700 && duration==2000); ++toneCalls;
+}
+inline void noTone(int) {}
 inline uint32_t millis() { return now; }
 inline void delay(int n) { now+=n; }
 inline int esp_sleep_enable_ext1_wakeup(uint64_t mask,int mode) {
@@ -63,7 +70,13 @@ public:
         if(phase++==0) { command=value; return 0; }
         if(phase==2) { address=value; return 0; }
         if(disconnected) return 0xFF;
-        if(command==0x0A) { if(address!=failWrite) regs[address]=value; ++address; return 0; }
+        if(command==0x0A) {
+            if(address!=failWrite) {
+                regs[address]=value;
+                if(address>=0x20 && address<=0x2E) regs[0x0B]&=~0x80;
+            }
+            ++address; return 0;
+        }
         assert(command==0x0B);
         uint8_t result=regs[address];
         if(address==0x0B) { ++statusReads; regs[address]&=~0x30; }
@@ -80,6 +93,9 @@ void resetSensor() {
 }
 int main() {
     resetSensor();
+    regs[0x0B]=0x80; // ERR_USER_REGS is expected before first configuration write.
+    assert(setup_fall_detection());
+    assert((regs[0x0B]&0x80)==0);
     regs[0x0B]=0x20; // Event latched before wake/reconfiguration must survive.
     assert(setup_fall_detection());
     assert(fall_detection_pending());
@@ -113,6 +129,10 @@ int main() {
     regs[0x0B]=0x20; now+=1000;
     update_fall_detection(true);
     assert(fall_detection_pending());
+    assert(toneCalls==1);
+    now+=1000;
+    update_fall_detection(true);
+    assert(toneCalls==1); // One sound per pending event.
 }
 `);
 try {

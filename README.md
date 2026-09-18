@@ -11,7 +11,8 @@ custom peripheral wiring stays in `include/board_pins.h`.
 Pin mapping and upload instructions: [docs/HardwareV3.md](docs/HardwareV3.md).
 ADXL362 wiring, thresholds and testing: [docs/ADXL362.md](docs/ADXL362.md).
 Sensor events override debug's normal status with status 2, while debug
-coordinates remain simulated.
+coordinates remain simulated. In LoRa debug mode only, a detected fall also
+sounds the GPIO4 buzzer at 2700 Hz for two seconds. Production mode is silent.
 
 Application-side ChirpStack MQTT topics and actual test data:
 [docs/RealTest.md](docs/RealTest.md).
@@ -71,13 +72,14 @@ fall is sent first and SOS retries on a short timer. No extra NVS writes are use
 ### Application-controlled Low Power Mode
 
 Normal production sleep remains 15 minutes. A valid application downlink on
-FPort `10` containing exactly `0x01` (Base64 `AQ==`) changes the next production
-sleep to one hour. See [MQTT contract](docs/mqtt-payload.md). Other ports, commands
-and payload lengths are ignored; repeated enable commands are safe.
+FPort `10` containing exactly `01 00 0F` (Base64 `AQAP`) changes the next
+production sleep to one hour. The `00 00 00` command (Base64 `AAAA`) returns it
+to the normal 15-minute interval. See [MQTT contract](docs/mqtt-payload.md).
+Other ports, commands and payload lengths are ignored; repeated commands are safe.
 
 The mode is retained in RTC across deep sleep with no NVS writes. Reset or power
-loss returns to the normal 15-minute mode. No disable command is defined yet.
-Low Power also sleeps for one hour in debug, matching production behavior.
+loss returns to the normal 15-minute mode. Low Power also sleeps for one hour in
+debug, matching production behavior.
 Button and fall wakeups remain enabled in Low Power Mode.
 
 This Class A device receives queued commands in the receive windows after an

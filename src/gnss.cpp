@@ -5,7 +5,36 @@
 
 TinyGPSPlus GPS;
 
-RTC_DATA_ATTR uint16_t bootCount = 0;
+namespace {
+bool echoRawNmea = false;
+bool waitForFix = false;
+RTC_DATA_ATTR bool hasPreviousFix = false;
+
+void printGnssStatus(uint32_t elapsedMs)
+{
+    Serial.printf("[GPS] elapsed=%lus chars=%lu checksum_ok=%lu checksum_fail=%lu "
+                  "satellites=%lu location=%s\n",
+                  static_cast<unsigned long>(elapsedMs / 1000),
+                  static_cast<unsigned long>(GPS.charsProcessed()),
+                  static_cast<unsigned long>(GPS.passedChecksum()),
+                  static_cast<unsigned long>(GPS.failedChecksum()),
+                  static_cast<unsigned long>(GPS.satellites.isValid()
+                      ? GPS.satellites.value() : 0),
+                  GPS.location.isValid() ? "valid" : "invalid");
+}
+
+void printGnssFailure()
+{
+    if (GPS.charsProcessed() == 0) {
+        Serial.println("[GPS] No UART data: check VEXT, L76L power, GPIO41 and baud rate");
+    } else if (GPS.passedChecksum() == 0) {
+        Serial.println("[GPS] UART data received but no valid NMEA: check baud rate and signal integrity");
+    } else {
+        Serial.println("[GPS] Valid NMEA received but no position fix: check antenna and sky view");
+    }
+}
+}
+
 RTC_DATA_ATTR int32_t rtc_lat = 0;
 RTC_DATA_ATTR int32_t rtc_lon = 0;
 RTC_DATA_ATTR uint8_t rtc_hour = 0;
@@ -13,11 +42,17 @@ RTC_DATA_ATTR uint8_t rtc_minute = 0;
 RTC_DATA_ATTR uint8_t rtc_second = 0;
 RTC_DATA_ATTR uint8_t rtc_centisecond = 0;
 
-void setup_gnss(void)
+void setup_gnss(bool rawNmeaDebug, bool waitUntilFix)
 {
-
+    echoRawNmea = rawNmeaDebug;
+    waitForFix = waitUntilFix;
     Board::setVext(true);
-    Serial1.begin(9600, SERIAL_8N1, Board::gnssRx, Board::gnssTx);
+    // RX-only avoids driving the L76-L 2.8 V UART domain from a 3.3 V GPIO.
+    Serial1.begin(9600, SERIAL_8N1, Board::gnssRx, -1);
+    pinMode(Board::gnssTx, INPUT);
+    Serial.printf("[GPS] UART1 RX=%d TX=disabled baud=9600 raw=%s wait_for_fix=%s\n",
+                  Board::gnssRx, echoRawNmea ? "ON" : "OFF",
+                  waitForFix ? "yes" : "no");
 }
 
 void stop_gnss()
@@ -30,33 +65,40 @@ void stop_gnss()
 
 void get_location()
 {
-    uint8_t counter = 0;
-    const uint32_t timeout = bootCount == 0
+    const uint32_t timeout = !hasPreviousFix
         ? AppConfig::firstGpsTimeoutMs : AppConfig::gpsTimeoutMs;
 
-    uint32_t start = millis();
-    uint32_t start_1 = millis();
+    const uint32_t start = millis();
+    uint32_t lastStatus = start;
+    if (waitForFix) {
+        Serial.printf("[GPS] Acquisition timeout=disabled previous_fix=%s\n",
+                      hasPreviousFix ? "yes" : "no");
+    } else {
+        Serial.printf("[GPS] Acquisition timeout=%lu ms previous_fix=%s\n",
+                      static_cast<unsigned long>(timeout), hasPreviousFix ? "yes" : "no");
+    }
 
     while (!GPS.location.isValid())
     {
         while (Serial1.available())
         {
-            GPS.encode(Serial1.read());
+            const char byte = static_cast<char>(Serial1.read());
+            GPS.encode(byte);
+            if (echoRawNmea) Serial.write(byte);
         }
         delay(1);
         DeviceButton::service();
-        if (DeviceButton::sosPending()) break;
+        if (!waitForFix && DeviceButton::sosPending()) break;
 
-        if ((millis() - start_1) > 1 * 1000)
+        const uint32_t now = millis();
+        if ((now - lastStatus) >= 1000)
         {
-            counter++;
-            start_1 = millis();
-            Serial.printf("GPS.location.isValid(%d)", counter);
-            Serial.println();
+            lastStatus = now;
+            printGnssStatus(now - start);
         }
-        if ((millis() - start) > timeout)
+        if (!waitForFix && (now - start) >= timeout)
         {
-            Serial.printf("No GPS data received: check wiring%d:%d", millis(), start);
+            printGnssFailure();
             break;
         }
     }
@@ -65,6 +107,11 @@ void get_location()
     {
         rtc_lat = GPS.location.lat() * 1e6;
         rtc_lon = GPS.location.lng() * 1e6;
+        hasPreviousFix = true;
+        Serial.printf("[GPS] Fix acquired: LAT=%.6f LON=%.6f satellites=%lu\n",
+                      GPS.location.lat(), GPS.location.lng(),
+                      static_cast<unsigned long>(GPS.satellites.isValid()
+                          ? GPS.satellites.value() : 0));
     }
 
     if (GPS.time.isValid())
@@ -74,6 +121,4 @@ void get_location()
         rtc_second = GPS.time.second();
         rtc_centisecond = GPS.time.centisecond();
     }
-
-    bootCount++;
 }

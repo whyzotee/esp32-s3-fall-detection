@@ -11,7 +11,7 @@ constexpr gpio_num_t FALL_INT_PIN = Board::accelInt1;
 constexpr uint16_t FALL_THRESHOLD_MG = 375;
 constexpr uint16_t FALL_DURATION_SAMPLES = 15; // 150 ms
 
-bool setup_fall_detection();
+bool setup_fall_detection(bool debug = false);
 void update_fall_detection(bool debug);
 bool fall_detection_pending();
 void acknowledge_fall_detection();

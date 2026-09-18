@@ -25,11 +25,14 @@ uint32_t reportInterval()
 void handleDownlink(const LoRaResult &result)
 {
     if (result.code <= 0 || result.downlinkLength == 0) return;
-    if (PowerMode::handleDownlink(result.downlinkPort, result.downlink, result.downlinkLength))
-        Serial.println("[APP] Low Power enabled: interval 3600000 ms (RTC only)");
-    else
+    if (PowerMode::handleDownlink(result.downlinkPort, result.downlink, result.downlinkLength)) {
+        Serial.printf("[APP] Low Power %s: interval %lu ms (RTC only)\n",
+                      PowerMode::enabled() ? "enabled" : "disabled",
+                      static_cast<unsigned long>(reportInterval()));
+    } else {
         Serial.printf("[APP] Ignored downlink: port=%u bytes=%u\n",
                       result.downlinkPort, unsigned(result.downlinkLength));
+    }
 }
 }
 

@@ -11,6 +11,8 @@
 // Debug only shortens the normal interval and enables simulated GPS/logging.
 constexpr bool LORA_DEBUG = true;
 constexpr uint32_t LORA_DEBUG_INTERVAL_MS = 15000;
+// Wait without sleeping and echo NMEA until a real position fix is available.
+constexpr bool GNSS_DEBUG = true;
 
 void setup()
 {
@@ -32,8 +34,11 @@ void setup()
     Serial.printf("LoRa debug: %s\n", LORA_DEBUG ? "ON (real deep sleep)" : "OFF");
     DebugMode::begin(LORA_DEBUG, LORA_DEBUG_INTERVAL_MS);
     DeepSleep::logWakeReason();
-    setup_fall_detection();
-    if (!LORA_DEBUG) setup_gnss();
+    setup_fall_detection(LORA_DEBUG);
+    if (!LORA_DEBUG) {
+        setup_gnss(GNSS_DEBUG, GNSS_DEBUG);
+        if (GNSS_DEBUG) get_location();
+    }
 }
 
 void loop()

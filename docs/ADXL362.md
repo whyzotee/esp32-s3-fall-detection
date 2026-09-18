@@ -6,6 +6,22 @@ Connections are listed in [HardwareV3.md](HardwareV3.md): CS33, MISO34,
 MOSI35, SCLK37, INT1 GPIO7, INT2 GPIO6, and always-on 3V3 supply.
 The dedicated HSPI bus does not reconfigure LoRa's global SPI bus.
 
+## Fall testing in LoRa debug mode
+
+Set `LORA_DEBUG = true` in `src/main.cpp` for an end-to-end bench test. This uses
+the production lifecycle: the ESP32 enters real deep sleep, ADXL362 INT1 on
+GPIO7 wakes it, and the next LoRa uplink carries status 2. Coordinates are
+simulated and the normal timer interval is shortened to 15 seconds. A detected
+fall also sounds the GPIO4 buzzer at 2700 Hz for two seconds. The buzzer is
+strictly debug-only; `LORA_DEBUG = false` keeps production fall handling silent.
+
+Diagnostic startup output includes device ID, initial STATUS and register
+write/readback failures. Runtime debug output includes X/Y/Z acceleration,
+vector magnitude, GPIO7 INT1 and pending-event state when the application is
+awake. During free fall the magnitude must remain below 375 mg for at least
+150 ms. Use a padded fixture and secure the battery and cables; do not test on
+a person.
+
 The driver configures ±2 g, 100 Hz, normal-power continuous measurement.
 Absolute inactivity detection implements free-fall: all three axes must stay
 below 375 mg for 15 samples (150 ms). INT1 is active-high and latched until

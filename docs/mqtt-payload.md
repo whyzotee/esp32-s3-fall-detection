@@ -49,21 +49,33 @@ The template is validated at startup. When `MQTT_MODE=local` or `dual`, commands
 publish through the local connection; `external` publishes through the external
 connection. The publish uses QoS 1, `retain=false` and a five-second timeout.
 
-`POST /api/devices/{id}/commands/low-power` publishes the minimum ChirpStack JSON:
+Low Power ON uses:
 
 ```json
 {
   "devEui": "70b3d57ed8005343",
-  "confirmed": true,
+  "confirmed": false,
   "fPort": 10,
-  "data": "AQ=="
+  "data": "AQAP"
 }
 ```
 
-`AQ==` is byte `0x01`, reserved here for entering Low Power Mode. Firmware must
-implement that contract. A successful API response means the broker accepted the
-queued publish; it is not a hardware acknowledgement and Safe Track does not set
-a low-power state on the Tracker record.
+Low Power OFF uses:
+
+```json
+{
+  "devEui": "70b3d57ed8005343",
+  "confirmed": false,
+  "fPort": 10,
+  "data": "AAAA"
+}
+```
+
+`AQAP` decodes to `01 00 0F` and enables Low Power Mode. `AAAA` decodes to
+`00 00 00` and disables it. Firmware requires the exact three-byte payload on
+FPort 10. A successful API response means the broker accepted the queued publish;
+it is not a hardware acknowledgement and Safe Track does not set a low-power
+state on the Tracker record.
 
 | Input | Safe Track behavior |
 | --- | --- |

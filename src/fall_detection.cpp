@@ -1,16 +1,22 @@
 #include <fall_detection.h>
 #include <SPI.h>
 #include <driver/rtc_io.h>
+#include <math.h>
 
 namespace {
 SPIClass sensorBus(HSPI); // Dedicated SPI3; LoRa uses the global FSPI/SPI2 bus.
 bool available = false;
+bool diagnosticMode = false;
 RTC_DATA_ATTR bool pending = false;
 uint32_t lastPoll = 0;
 uint32_t lastLog = 0;
+bool debugBuzzerPlayed = false;
 constexpr uint8_t STATUS = 0x0B;
 constexpr uint8_t INACT = 0x20;
 constexpr uint8_t REGISTER_ERROR = 0x80;
+constexpr uint32_t DEBUG_SAMPLE_INTERVAL_MS = 250;
+constexpr uint16_t DEBUG_BUZZER_HZ = 2700;
+constexpr uint32_t DEBUG_BUZZER_MS = 2000;
 
 void readRegisters(uint8_t reg, uint8_t *data, size_t length)
 {
@@ -27,6 +33,10 @@ bool devicePresent()
 {
     uint8_t id[3];
     readRegisters(0x00, id, sizeof(id));
+    if (diagnosticMode && !available) {
+        Serial.printf("[FALL DEBUG] Device ID: %02X %02X %02X (expected AD 1D F2)\n",
+                      id[0], id[1], id[2]);
+    }
     return id[0] == 0xAD && id[1] == 0x1D && id[2] == 0xF2;
 }
 
@@ -41,25 +51,37 @@ bool writeRegister(uint8_t reg, uint8_t value)
     sensorBus.endTransaction();
     uint8_t actual = 0;
     readRegisters(reg, &actual, 1);
+    if (diagnosticMode && actual != value) {
+        Serial.printf("[FALL DEBUG] Register 0x%02X write failed: expected=0x%02X actual=0x%02X\n",
+                      reg, value, actual);
+    }
     return actual == value;
 }
 
-bool readInterrupt()
+bool readInterrupt(bool allowUnconfigured = false, bool verifyDevice = true)
 {
     // SPI has no ACK: check identity to catch common disconnected-bus faults.
-    if (!devicePresent()) return false;
+    if (verifyDevice && !devicePresent()) return false;
     uint8_t source = 0;
     readRegisters(STATUS, &source, 1); // Clears ACT/INACT hardware latches.
     if (source & INACT) {
         pending = true;
         Serial.println("[ADXL362] FREE_FALL: suspected fall, status=2 queued");
     }
-    return !(source & REGISTER_ERROR);
+    if (source & REGISTER_ERROR) {
+        if (diagnosticMode) {
+            Serial.printf("[FALL DEBUG] STATUS=0x%02X ERR_USER_REGS=1 (%s)\n",
+                          source, allowUnconfigured ? "expected before configuration" : "unexpected");
+        }
+        return allowUnconfigured;
+    }
+    return true;
 }
 }
 
-bool setup_fall_detection()
+bool setup_fall_detection(bool debug)
 {
+    diagnosticMode = debug;
     available = false;
     rtc_gpio_deinit(FALL_INT_PIN);
     pinMode(FALL_INT_PIN, INPUT_PULLDOWN);
@@ -73,7 +95,8 @@ bool setup_fall_detection()
         return false;
     }
     // Preserve a latched wake cause before standby/reconfiguration; never reset first.
-    if (!readInterrupt() ||
+    // ERR_USER_REGS is expected at startup until the first protected-register write.
+    if (!readInterrupt(true, false) ||
         !writeRegister(0x2A, 0x00) || // INT1 off during configuration.
         !writeRegister(0x2B, 0x00) || // INT2 unused.
         !writeRegister(0x2D, 0x00) || // Standby.
@@ -85,7 +108,7 @@ bool setup_fall_detection()
         !writeRegister(0x25, FALL_DURATION_SAMPLES & 0xFF) ||
         !writeRegister(0x26, FALL_DURATION_SAMPLES >> 8) ||
         !writeRegister(0x27, 0x04) || // Absolute inactivity, default (not linked) mode.
-        !readInterrupt() ||
+        !readInterrupt(false, false) ||
         !writeRegister(0x2A, INACT) || // Active-high latched INT1.
         !writeRegister(0x2D, 0x02)) { // Continuous measurement; no autosleep.
         Serial.println("[ADXL362] Configuration/readback failed; fall wake disabled");
@@ -95,6 +118,10 @@ bool setup_fall_detection()
     Serial.printf("[ADXL362] Ready: CS=%d SCK=%d MISO=%d MOSI=%d INT1=%d, %umg/%ums\n",
                   Board::accelCs, Board::accelSck, Board::accelMiso, Board::accelMosi,
                   int(FALL_INT_PIN), FALL_THRESHOLD_MG, FALL_DURATION_SAMPLES * 10);
+    if (diagnosticMode) {
+        Serial.println("[FALL DEBUG] Real deep-sleep wake, status=2 uplink and debug-only buzzer enabled");
+        Serial.println("[FALL DEBUG] Use a padded fixture; free fall must stay below the threshold for 150 ms");
+    }
     return true;
 }
 
@@ -109,20 +136,32 @@ void update_fall_detection(bool debug)
         }
         return;
     }
-    if (debug && uint32_t(millis() - lastLog) >= 1000) {
+    if (debug && uint32_t(millis() - lastLog) >= DEBUG_SAMPLE_INTERVAL_MS) {
         lastLog = millis();
         uint8_t data[6];
         readRegisters(0x0E, data, sizeof(data));
         int16_t x = uint16_t(data[0]) | uint16_t(data[1]) << 8;
         int16_t y = uint16_t(data[2]) | uint16_t(data[3]) << 8;
         int16_t z = uint16_t(data[4]) | uint16_t(data[5]) << 8;
-        Serial.printf("[ADXL362] x=%.3fg y=%.3fg z=%.3fg pending=%d\n",
-                      x * 0.001, y * 0.001, z * 0.001, pending);
+        const float magnitude = sqrtf(float(x) * x + float(y) * y + float(z) * z) * 0.001f;
+        Serial.printf("[FALL DEBUG] x=%+.3fg y=%+.3fg z=%+.3fg |a|=%.3fg INT1=%d pending=%s\n",
+                      x * 0.001, y * 0.001, z * 0.001, magnitude,
+                      digitalRead(FALL_INT_PIN), pending ? "YES" : "NO");
+    }
+
+    if (debug && pending && !debugBuzzerPlayed) {
+        debugBuzzerPlayed = true;
+        tone(Board::buzzer, DEBUG_BUZZER_HZ, DEBUG_BUZZER_MS);
+        Serial.println("[FALL DEBUG] FALL EVENT DETECTED; buzzer active for 2 seconds");
     }
 }
 
 bool fall_detection_pending() { return pending; }
-void acknowledge_fall_detection() { pending = false; }
+void acknowledge_fall_detection()
+{
+    pending = false;
+    debugBuzzerPlayed = false;
+}
 
 bool prepare_fall_detection_sleep()
 {
