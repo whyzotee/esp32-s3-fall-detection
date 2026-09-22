@@ -51,17 +51,46 @@ Actions are selected on debounced release, so a power-off hold does not also sen
 
 | Current state | Hold before release | Action |
 | --- | --- | --- |
-| On | Less than 3 seconds | No button event |
-| On | 3 to less than 5 seconds | Queue SOS (status 1) |
-| On | 5 seconds or longer | Soft power-off |
-| Off | Less than 3 seconds | Return to off sleep, without starting GPS/LoRa |
-| Off | 3 seconds or longer | Power on |
+| On | Three short presses, each under 1 second, within 1.5 seconds | Queue SOS (status 1) |
+| On | Hold 5–7 seconds | Soft power-off |
+| On | Hold at least 8 seconds | Start local Wi-Fi OTA mode |
+| On | Any other hold | No button event |
+| Off | Hold 1–4 seconds | Power on |
+| Off | Any other hold | Return to off sleep, without starting GPS/LoRa |
 
-Soft-off disables timer and fall wakeups and waits only for GPIO0. It is deep
+The initial button wake counts as the first SOS click when it has already been
+released by the time button monitoring starts. Soft-off disables timer and fall wakeups and waits only for GPIO0. It is deep
 sleep, not a physical battery disconnect; always-powered circuits still draw current.
 Hold time starts when firmware can read the button after wake, so allow a little
 extra time for boot. Holding GPIO0 during reset/power connection can enter the
 ESP32 bootloader instead. Reset/power loss clears the RTC soft-off state.
+
+### Local Wi-Fi OTA update
+
+Hold S2 / GPIO0 for at least 8 seconds while the tracker is on, then release it.
+The tracker stops its radio and GNSS, starts the open Wi-Fi hotspot
+`Tracker-OTA-XXXXXX`, and prints its name and address to Serial Monitor. Connect
+to that hotspot and open [http://192.168.4.1](http://192.168.4.1). Upload the
+PlatformIO application image:
+
+```text
+.pio/build/heltec_wifi_lora_32_V3/firmware.bin
+```
+
+The page stays available for 15 minutes after its last request or upload activity.
+When the timeout expires, Wi-Fi turns off and the tracker returns to normal timed
+deep sleep. A successful upload restarts immediately into the new image.
+
+The update is selected only after the complete firmware image has been received and
+verified by Arduino `Update`. An interrupted or failed upload leaves the installed
+firmware selected. This project intentionally does not enable bootloader rollback:
+after a successful upload, the new firmware is the firmware booted on restart.
+
+The OTA hotspot has no password or upload authentication by design. Anyone within
+Wi-Fi range can upload firmware only while this mode is deliberately enabled, so do
+not leave it active in an untrusted area. Flash the first OTA-capable firmware using
+the wired method, and use stable J4/external power for every update; the known
+battery-path reset problem can interrupt an update.
 
 A background task debounces the button during GPS acquisition and radio blocking
 calls. Power-off is applied at the next safe service point, not midway through RF.
@@ -104,6 +133,7 @@ Exact versions are pinned in `platformio.ini` for reproducible builds.
 - `src/device_button.cpp`: debounced holds, pending SOS and RTC soft-off state.
 - `src/telemetry.cpp`: real/cached GPS readings and the 17-byte encoder.
 - `src/tracker_app.cpp`: wake-cycle orchestration, event priority, downlink dispatch and retry timing.
+- `src/ota_manager.cpp`: local Wi-Fi OTA portal, update handoff and rollback confirmation.
 - `src/lora_wan.cpp`: radio, OTAA activation, packet exchange and session persistence calls; no sleep scheduling.
 - `src/deep_sleep.cpp`: the only owner of ESP32 deep-sleep entry, wake sources and peripheral shutdown.
 - `src/lorawan_storage.cpp`: RTC session storage and durable OTAA nonce storage.
@@ -163,11 +193,13 @@ The `decodeUplink(input)` interface follows [The Things Stack documentation](htt
 
 | Byte offset (zero-based) | Data |
 | --- | --- |
-| 0 | Status: 0 = normal, 1 = button pressed, 2 = free-fall detected / suspected fall |
+| 0 | Status: 0 = normal, 1 = SOS button hold, 2 = free-fall detected / suspected fall |
 | 1–4 | Latitude: float32 little-endian |
 | 5–8 | Longitude: float32 little-endian |
 | 9, 11, 13, 15 | Hour, minute, second, centisecond (1/100 second) |
-| 10, 12, 14, 16 | Padding: the current firmware sends 0 |
+| 10 | Flags: bit 0 = fresh GNSS fix, bit 1 = low-power mode, bit 2 = debug simulation, bit 3 = VEXT held on during deep sleep |
+| 12, 14 | Firmware major, minor version |
+| 16 | Reserved; firmware sends 0 |
 
 ```javascript
 function decodeUplink(input) {
@@ -202,8 +234,11 @@ function decodeUplink(input) {
         return { errors: ["Invalid latitude/longitude"] };
     }
 
-    var events = ["Normal Update", "Button Pressed", "Fall Detected"];
+    var events = ["Normal Update", "SOS", "Fall Detected"];
     var warnings = [];
+    var firmwareVersion = (bytes[12] || bytes[14])
+        ? bytes[12] + "." + bytes[14] : null;
+    var flags = bytes[10];
     if (bytes[0] > 2) warnings.push("Unknown status code");
     if (latitude === 0 && longitude === 0) {
         warnings.push("Coordinates are 0,0; GPS fix may be unavailable");
@@ -222,7 +257,14 @@ function decodeUplink(input) {
             minute: bytes[11],
             second: bytes[13],
             centisecond: bytes[15],
-            time_string: pad2(bytes[9]) + ":" + pad2(bytes[11]) + ":" + pad2(bytes[13])
+            time_string: pad2(bytes[9]) + ":" + pad2(bytes[11]) + ":" + pad2(bytes[13]),
+            firmware_version: firmwareVersion,
+            flags: firmwareVersion === null ? null : {
+                gps_fresh: !!(flags & 1),
+                low_power_mode: !!(flags & 2),
+                debug_simulation: !!(flags & 4),
+                vext_held_on: !!(flags & 8)
+            }
         },
         warnings: warnings,
         errors: []
@@ -233,7 +275,7 @@ function decodeUplink(input) {
 Test with FPort `2` and this hexadecimal payload:
 
 ```text
-02000060410000C9420C00220038004E00
+02000060410000C9420C00220138004E00
 ```
 
 Expected `data` output:
@@ -248,7 +290,14 @@ Expected `data` output:
   "minute": 34,
   "second": 56,
   "centisecond": 78,
-  "time_string": "12:34:56"
+  "time_string": "12:34:56",
+  "firmware_version": "1.0",
+  "flags": {
+    "gps_fresh": false,
+    "low_power_mode": false,
+    "debug_simulation": false,
+    "vext_held_on": false
+  }
 }
 ```
 

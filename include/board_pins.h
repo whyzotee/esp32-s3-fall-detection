@@ -27,6 +27,11 @@ constexpr int radioDio1 = 14;
 
 
 void begin();
+// When enabled, GPIO36 stays LOW (VEXT on) while the ESP32 is in deep sleep.
+// Configure this before begin() so the first wake does not momentarily turn
+// VEXT off before it is enabled again.
+void keepVextEnabledDuringSleep(bool enabled);
+bool vextEnabledDuringSleep();
 void setVext(bool enabled);
 void prepareSleep();
 }

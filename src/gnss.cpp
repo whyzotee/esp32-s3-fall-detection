@@ -7,7 +7,6 @@ TinyGPSPlus GPS;
 
 namespace {
 bool echoRawNmea = false;
-bool waitForFix = false;
 RTC_DATA_ATTR bool hasPreviousFix = false;
 
 void printGnssStatus(uint32_t elapsedMs)
@@ -42,17 +41,15 @@ RTC_DATA_ATTR uint8_t rtc_minute = 0;
 RTC_DATA_ATTR uint8_t rtc_second = 0;
 RTC_DATA_ATTR uint8_t rtc_centisecond = 0;
 
-void setup_gnss(bool rawNmeaDebug, bool waitUntilFix)
+void setup_gnss(bool rawNmeaDebug)
 {
     echoRawNmea = rawNmeaDebug;
-    waitForFix = waitUntilFix;
     Board::setVext(true);
     // RX-only avoids driving the L76-L 2.8 V UART domain from a 3.3 V GPIO.
     Serial1.begin(9600, SERIAL_8N1, Board::gnssRx, -1);
     pinMode(Board::gnssTx, INPUT);
-    Serial.printf("[GPS] UART1 RX=%d TX=disabled baud=9600 raw=%s wait_for_fix=%s\n",
-                  Board::gnssRx, echoRawNmea ? "ON" : "OFF",
-                  waitForFix ? "yes" : "no");
+    Serial.printf("[GPS] UART1 RX=%d TX=disabled baud=9600 raw=%s\n",
+                  Board::gnssRx, echoRawNmea ? "ON" : "OFF");
 }
 
 void stop_gnss()
@@ -70,13 +67,8 @@ void get_location()
 
     const uint32_t start = millis();
     uint32_t lastStatus = start;
-    if (waitForFix) {
-        Serial.printf("[GPS] Acquisition timeout=disabled previous_fix=%s\n",
-                      hasPreviousFix ? "yes" : "no");
-    } else {
-        Serial.printf("[GPS] Acquisition timeout=%lu ms previous_fix=%s\n",
-                      static_cast<unsigned long>(timeout), hasPreviousFix ? "yes" : "no");
-    }
+    Serial.printf("[GPS] Acquisition timeout=%lu ms previous_fix=%s\n",
+                  static_cast<unsigned long>(timeout), hasPreviousFix ? "yes" : "no");
 
     while (!GPS.location.isValid())
     {
@@ -88,7 +80,8 @@ void get_location()
         }
         delay(1);
         DeviceButton::service();
-        if (!waitForFix && DeviceButton::sosPending()) break;
+        // SOS uses cached coordinates if needed; do not wait indefinitely for a new fix.
+        if (DeviceButton::sosPending() || DeviceButton::otaPending()) break;
 
         const uint32_t now = millis();
         if ((now - lastStatus) >= 1000)
@@ -96,7 +89,7 @@ void get_location()
             lastStatus = now;
             printGnssStatus(now - start);
         }
-        if (!waitForFix && (now - start) >= timeout)
+        if ((now - start) >= timeout)
         {
             printGnssFailure();
             break;

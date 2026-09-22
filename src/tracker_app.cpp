@@ -1,11 +1,13 @@
 #include <Arduino.h>
 #include <tracker_app.h>
 #include <app_config.h>
+#include <board_pins.h>
 #include <debug_mode.h>
 #include <deep_sleep.h>
 #include <device_button.h>
 #include <fall_detection.h>
 #include <lora_wan.h>
+#include <ota_manager.h>
 #include <power_mode.h>
 #include <telemetry.h>
 
@@ -16,9 +18,17 @@ uint32_t reportInterval()
     return DebugMode::enabled() ? DebugMode::interval() : PowerMode::reportInterval();
 }
 
+[[noreturn]] void startOtaIfRequested()
+{
+    if (DeviceButton::otaPending()) OtaManager::run(reportInterval());
+    // Only called when an OTA request exists.
+    while (true) delay(1000);
+}
+
 [[noreturn]] void sleepFor(uint32_t durationMs)
 {
     DeviceButton::service();
+    if (DeviceButton::otaPending()) startOtaIfRequested();
     DeepSleep::timed(durationMs);
 }
 
@@ -40,6 +50,7 @@ namespace TrackerApp {
 [[noreturn]] void runCycle()
 {
     DeviceButton::service();
+    if (DeviceButton::otaPending()) startOtaIfRequested();
     const bool debug = DebugMode::enabled();
     update_fall_detection(debug);
     DebugMode::update(fall_detection_pending());
@@ -48,6 +59,7 @@ namespace TrackerApp {
         DebugMode::message("LoRa init/join failed");
         sleepFor(AppConfig::retryInitialMs);
     }
+    if (DeviceButton::otaPending()) startOtaIfRequested();
     if (lora_wait_ms() > 0)
         sleepFor(max(uint32_t(1000), lora_wait_ms()));
 
@@ -57,8 +69,18 @@ namespace TrackerApp {
     // Acquisition can block. Capture events that arrived before transmitting.
     update_fall_detection(false);
     DeviceButton::service();
-    if (fall_detection_pending()) sample.status = 2;
-    else if (DeviceButton::sosPending()) sample.status = 1;
+    if (DeviceButton::otaPending()) startOtaIfRequested();
+    // An event may arrive while normal telemetry is waiting for GNSS. Rebuild
+    // from RTC-cached coordinates so the urgent packet cannot retain a 0,0
+    // normal sample with only its status byte changed.
+    if (fall_detection_pending() && sample.status != 2)
+        sample = read_telemetry(2);
+    else if (DeviceButton::sosPending() && sample.status != 1)
+        sample = read_telemetry(1);
+
+    if (PowerMode::enabled()) sample.flags |= TelemetryFlags::lowPowerMode;
+    if (debug) sample.flags |= TelemetryFlags::debugSimulation;
+    if (Board::vextEnabledDuringSleep()) sample.flags |= TelemetryFlags::vextHeldOn;
 
     const LoRaResult result = send_lora_telemetry(sample);
     DebugMode::result(result.code);

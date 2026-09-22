@@ -3,7 +3,7 @@
 
 #include <board_pins.h>
 
-void setup_gnss(bool rawNmeaDebug, bool waitUntilFix);
+void setup_gnss(bool rawNmeaDebug);
 void stop_gnss();
 void get_location();
 

@@ -65,7 +65,7 @@ Example `.object` from the test event below:
 | `fCnt: 174` | Uplink frame counter; should continue increasing, with possible skipped values |
 | `data` | Base64-encoded application payload after LoRaWAN decryption, not decoded coordinate JSON |
 | `object` | Output of the payload decoder configured in the device profile |
-| `object.status: 0` | Normal periodic update; 1 = button pressed, 2 = free-fall / suspected fall |
+| `object.status: 0` | Normal periodic update; 1 = SOS, 2 = free-fall / suspected fall |
 | `time` | System event timestamp, distinct from `object.time_string` |
 | `object.time_string` | In debug mode, elapsed boot time rather than UTC; coordinates are also simulated |
 | `txInfo.frequency: 923200000` | Uplink frequency of 923.2 MHz |
