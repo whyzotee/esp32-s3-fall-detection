@@ -2,8 +2,8 @@
 #include <stdint.h>
 
 namespace AppConfig {
-constexpr uint32_t reportIntervalMs = 15 * 60 * 1000;
-constexpr uint32_t lowPowerIntervalMs = 60 * 60 * 1000;
+constexpr uint32_t reportIntervalMs = 1 * 60 * 1000;
+constexpr uint32_t lowPowerIntervalMs = 15 * 60 * 1000;
 constexpr uint32_t retryInitialMs = 60 * 1000;
 constexpr uint32_t eventRetryMs = 15 * 1000;
 constexpr uint32_t firstGpsTimeoutMs = 120 * 1000;
