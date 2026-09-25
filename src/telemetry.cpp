@@ -42,8 +42,6 @@ Telemetry read_telemetry(uint8_t status)
         }
     }
 
-    Serial.printf("[GPS] LAT: %.6f, LON: %.6f, STATUS: %u\n",
-                  sample.lat, sample.lon, sample.status);
     return sample;
 }
 
