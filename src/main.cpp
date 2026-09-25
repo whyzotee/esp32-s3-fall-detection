@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <audio_feedback.h>
 #include <board_pins.h>
 #include <debug_mode.h>
 #include <deep_sleep.h>
@@ -26,6 +27,7 @@ void setup()
     setCpuFrequencyMhz(80);
     Board::keepVextEnabledDuringSleep(KEEP_VEXT_ON_DURING_DEEP_SLEEP);
     Board::begin();
+    AudioFeedback::begin();
     DeviceButton::begin();
     if (DeviceButton::otaPending()) OtaManager::run(AppConfig::reportIntervalMs);
 

@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
+#include <audio_feedback.h>
 #include <board_pins.h>
 #include <deep_sleep.h>
 #include <device_button.h>
@@ -124,6 +125,7 @@ namespace OtaManager {
     stop_gnss();
     Board::setVext(false);
     Serial.println("[OTA] Starting local Wi-Fi updater");
+    AudioFeedback::play(AudioFeedback::Event::OtaMode);
     if (!startAp()) {
         Serial.println("[OTA] AP start failed; returning to sleep");
         DeepSleep::timed(sleepIntervalMs);

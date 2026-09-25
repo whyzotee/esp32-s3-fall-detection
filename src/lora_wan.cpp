@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <SPI.h>
+#include <audio_feedback.h>
 #include <app_config.h>
 #include <board_pins.h>
 #include <lora_wan.h>
@@ -114,10 +115,11 @@ bool setup_lora_wan_app()
     }
 
     node.setADR(false);
-    // DR3 (SF9/BW125) accommodates the 12-byte payload with AS923 dwell time.
+    // DR3 (SF9/BW125) accommodates the 15-byte payload with AS923 dwell time.
     if (node.setDatarate(AppConfig::uplinkDataRate) != RADIOLIB_ERR_NONE)
         return false;
 
+    if (ready) AudioFeedback::play(AudioFeedback::Event::LoRaConnected);
     return ready;
 }
 

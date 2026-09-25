@@ -1,5 +1,6 @@
 #include <fall_detection.h>
 #include <SPI.h>
+#include <audio_feedback.h>
 #include <driver/rtc_io.h>
 #include <math.h>
 
@@ -10,13 +11,11 @@ bool diagnosticMode = false;
 RTC_DATA_ATTR bool pending = false;
 uint32_t lastPoll = 0;
 uint32_t lastLog = 0;
-bool debugBuzzerPlayed = false;
+bool fallBuzzerPlayed = false;
 constexpr uint8_t STATUS = 0x0B;
 constexpr uint8_t INACT = 0x20;
 constexpr uint8_t REGISTER_ERROR = 0x80;
 constexpr uint32_t DEBUG_SAMPLE_INTERVAL_MS = 250;
-constexpr uint16_t DEBUG_BUZZER_HZ = 2700;
-constexpr uint32_t DEBUG_BUZZER_MS = 2000;
 
 void readRegisters(uint8_t reg, uint8_t *data, size_t length)
 {
@@ -119,7 +118,7 @@ bool setup_fall_detection(bool debug)
                   Board::accelCs, Board::accelSck, Board::accelMiso, Board::accelMosi,
                   int(FALL_INT_PIN), FALL_THRESHOLD_MG, FALL_DURATION_SAMPLES * 10);
     if (diagnosticMode) {
-        Serial.println("[FALL DEBUG] Real deep-sleep wake, status=2 uplink and debug-only buzzer enabled");
+        Serial.println("[FALL DEBUG] Real deep-sleep wake, status=2 uplink and buzzer enabled");
         Serial.println("[FALL DEBUG] Use a padded fixture; free fall must stay below the threshold for 150 ms");
     }
     return true;
@@ -149,10 +148,10 @@ void update_fall_detection(bool debug)
                       digitalRead(FALL_INT_PIN), pending ? "YES" : "NO");
     }
 
-    if (debug && pending && !debugBuzzerPlayed) {
-        debugBuzzerPlayed = true;
-        tone(Board::buzzer, DEBUG_BUZZER_HZ, DEBUG_BUZZER_MS);
-        Serial.println("[FALL DEBUG] FALL EVENT DETECTED; buzzer active for 2 seconds");
+    if (pending && !fallBuzzerPlayed) {
+        fallBuzzerPlayed = true;
+        AudioFeedback::play(AudioFeedback::Event::Fall);
+        Serial.println("[FALL] EVENT DETECTED; alert tone active");
     }
 }
 
@@ -160,7 +159,7 @@ bool fall_detection_pending() { return pending; }
 void acknowledge_fall_detection()
 {
     pending = false;
-    debugBuzzerPlayed = false;
+    fallBuzzerPlayed = false;
 }
 
 bool prepare_fall_detection_sleep()

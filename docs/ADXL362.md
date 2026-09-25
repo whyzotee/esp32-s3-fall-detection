@@ -12,8 +12,8 @@ Set `LORA_DEBUG = true` in `src/main.cpp` for an end-to-end bench test. This use
 the production lifecycle: the ESP32 enters real deep sleep, ADXL362 INT1 on
 GPIO7 wakes it, and the next LoRa uplink carries status 2. Coordinates are
 simulated and the normal timer interval is shortened to 15 seconds. A detected
-fall also sounds the GPIO4 buzzer at 2700 Hz for two seconds. The buzzer is
-strictly debug-only; `LORA_DEBUG = false` keeps production fall handling silent.
+fall plays four urgent GPIO4 beeps in both debug and production mode; the last
+beep is longer. The buzzer is silenced before deep sleep.
 
 Diagnostic startup output includes device ID, initial STATUS and register
 write/readback failures. Runtime debug output includes X/Y/Z acceleration,

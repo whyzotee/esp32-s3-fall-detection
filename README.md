@@ -11,8 +11,8 @@ custom peripheral wiring stays in `include/board_pins.h`.
 Pin mapping and upload instructions: [docs/HardwareV3.md](docs/HardwareV3.md).
 ADXL362 wiring, thresholds and testing: [docs/ADXL362.md](docs/ADXL362.md).
 Sensor events override debug's normal status with status 2, while debug
-coordinates remain simulated. In LoRa debug mode only, a detected fall also
-sounds the GPIO4 buzzer at 2700 Hz for two seconds. Production mode is silent.
+coordinates remain simulated. Audible feedback uses the GPIO4 buzzer in both
+debug and production mode; see [Audible feedback](#audible-feedback).
 
 Application-side ChirpStack MQTT topics and actual test data:
 [docs/RealTest.md](docs/RealTest.md).
@@ -64,6 +64,24 @@ sleep, not a physical battery disconnect; always-powered circuits still draw cur
 Hold time starts when firmware can read the button after wake, so allow a little
 extra time for boot. Holding GPIO0 during reset/power connection can enter the
 ESP32 bootloader instead. Reset/power loss clears the RTC soft-off state.
+
+### Audible feedback
+
+GPIO4 drives a short, distinct buzzer tone while the tracker is awake. It is
+silenced before every deep sleep and does not hold the device awake.
+
+| Event | Tone |
+| --- | --- |
+| Power on after a 1–4 second hold | Three rising notes |
+| Power off after a 5–7 second hold | Three falling notes, then sleeps |
+| SOS queued by three short presses | Three high, evenly-spaced beeps |
+| ADXL362 suspected fall | Four urgent high beeps; final beep is longer |
+| LoRaWAN session joined or restored | Three rising confirmation notes |
+| Local Wi-Fi OTA/AP mode starts | Alternating low/high notes, then one high confirmation note |
+
+The buzzer uses a small background task, so SOS, fall and LoRa connection
+melodies do not block GNSS or radio work. The shutdown melody is the exception:
+firmware waits for it to complete before entering deep sleep.
 
 ### Local Wi-Fi OTA update
 
@@ -131,7 +149,8 @@ Exact versions are pinned in `platformio.ini` for reproducible builds.
 - `src/board_pins.cpp`: shared VEXT power and inactive actuator levels.
 - `src/debug_mode.cpp`: walking simulation and Serial monitor debug diagnostics.
 - `src/device_button.cpp`: debounced holds, pending SOS and RTC soft-off state.
-- `src/telemetry.cpp`: real/cached GPS readings and the 12-byte encoder.
+- `src/audio_feedback.cpp`: GPIO4 audible state feedback.
+- `src/telemetry.cpp`: real/cached GPS readings and the 15-byte encoder.
 - `src/tracker_app.cpp`: wake-cycle orchestration, event priority, downlink dispatch and retry timing.
 - `src/ota_manager.cpp`: local Wi-Fi OTA portal, update handoff and rollback confirmation.
 - `src/lora_wan.cpp`: radio, OTAA activation, packet exchange and session persistence calls; no sleep scheduling.

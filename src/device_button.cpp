@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <audio_feedback.h>
 #include <device_button.h>
 #include <board_pins.h>
 #include <deep_sleep.h>
@@ -20,6 +21,7 @@ uint32_t firstClickAt = 0;
     poweredOff = true;
     pendingSos = false;
     pendingOta = false;
+    AudioFeedback::playAndWait(AudioFeedback::Event::PowerOff);
     DeepSleep::powerOff();
 }
 
@@ -68,7 +70,10 @@ void monitor(void *)
             }
         }
         portEXIT_CRITICAL(&lock);
-        if (sosQueued) Serial.println("[BUTTON] SOS queued (three clicks)");
+        if (sosQueued) {
+            Serial.println("[BUTTON] SOS queued (three clicks)");
+            AudioFeedback::play(AudioFeedback::Event::Sos);
+        }
         if (otaQueued) Serial.println("[BUTTON] OTA mode queued (hold 8 seconds)");
         delay(10);
     }
@@ -97,6 +102,7 @@ void begin()
         if (classify(true, uint32_t(releasedAt - start)) != Action::PowerOn) sleepOff();
         poweredOff = false;
         Serial.println("[POWER] On");
+        AudioFeedback::playAndWait(AudioFeedback::Event::PowerOn);
     }
     held = digitalRead(Board::button) == LOW;
     // A released EXT0 wake press is the first SOS click. If it is still held,
