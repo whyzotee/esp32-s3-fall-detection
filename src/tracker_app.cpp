@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <tracker_app.h>
 #include <app_config.h>
+#include <battery.h>
 #include <board_pins.h>
 #include <debug_mode.h>
 #include <deep_sleep.h>
@@ -81,6 +82,10 @@ namespace TrackerApp {
     if (PowerMode::enabled()) sample.flags |= TelemetryFlags::lowPowerMode;
     if (debug) sample.flags |= TelemetryFlags::debugSimulation;
     if (Board::vextEnabledDuringSleep()) sample.flags |= TelemetryFlags::vextHeldOn;
+    const BatteryReading battery = Battery::read();
+    sample.batteryMv = battery.millivolts;
+    sample.batteryPercent = battery.percent;
+    if (battery.valid) sample.flags |= TelemetryFlags::batteryValid;
 
     const LoRaResult result = send_lora_telemetry(sample);
     DebugMode::result(result.code);

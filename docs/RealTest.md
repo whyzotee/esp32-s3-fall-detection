@@ -48,7 +48,9 @@ Example `.object` from the test event below:
   "status": 0,
   "event": "Normal Update",
   "latitude": 13.758852005004883,
-  "longitude": 100.50289154052734
+  "longitude": 100.50289154052734,
+  "battery_mv": 3700,
+  "battery_percent": 15
 }
 ```
 
@@ -79,7 +81,7 @@ Gateway Bridge encoding does not need to change to read application JSON. See th
 
 If `.object` is `null` or missing, inspect the full event and check the payload codec
 in the device profile. If status or coordinate values are out of range, check the FPort,
-12-byte payload, decoder, and OTAA credentials against the board configuration. Never
+15-byte payload, decoder, and OTAA credentials against the board configuration. Never
 publish keys in logs or documentation. An earlier test had mismatched AppSKey values,
 which produced incorrect decoded data even though packets were received.
 
@@ -111,12 +113,14 @@ see [ChirpStack event types](https://www.chirpstack.io/docs/chirpstack/integrati
   "fCnt": 174,
   "fPort": 2,
   "confirmed": false,
-  "data": "AEIkXEF7AclCAAEA",
+  "data": "AEIkXEF7AclCAAEAdA4P",
   "object": {
     "longitude": 100.50289154052734,
     "status": 0.0,
     "event": "Normal Update",
-    "latitude": 13.758852005004883
+    "latitude": 13.758852005004883,
+    "battery_mv": 3700.0,
+    "battery_percent": 15.0
   },
   "rxInfo": [
     {

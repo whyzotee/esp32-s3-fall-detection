@@ -58,4 +58,7 @@ void encode_telemetry(const Telemetry &sample, uint8_t *payload)
     payload[9] = sample.flags;
     payload[10] = FirmwareVersion::major;
     payload[11] = FirmwareVersion::minor;
+    payload[12] = sample.batteryMv & 0xFF;
+    payload[13] = sample.batteryMv >> 8;
+    payload[14] = sample.batteryPercent;
 }

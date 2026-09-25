@@ -24,11 +24,13 @@ ${encoder}
 ${walk}
 int main() {
     Telemetry s{};
-    s.status = 2; s.lat = 14; s.lon = 100.5;
+    s.status = 2; s.lat = 14; s.lon = 100.5; s.batteryMv = 3700; s.batteryPercent = 15;
     uint8_t payload[TELEMETRY_PAYLOAD_SIZE];
     memset(payload, 0xff, sizeof(payload));
     encode_telemetry(s, payload);
-    const uint8_t expected[] = {2,0,0,96,65,0,0,201,66,0,1,0};
+    const uint8_t expected[] = {2,0,0,96,65,0,0,201,66,0,
+                                FirmwareVersion::major, FirmwareVersion::minor,
+                                116,14,15};
     assert(sizeof(payload) == sizeof(expected));
     assert(memcmp(payload, expected, sizeof(expected)) == 0);
     auto a = walking_sample(0);

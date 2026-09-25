@@ -17,6 +17,7 @@ constexpr gpio_num_t button = GPIO_NUM_0;
 constexpr int buzzer = 4;
 constexpr int vibration = 5;
 constexpr int statusLed = 40;
+constexpr int batteryAdc = 2;  // VBAT divider: 750k (top) / 360k (bottom).
 constexpr int radioCs = 8;
 constexpr int radioSck = 9;
 constexpr int radioMosi = 10;

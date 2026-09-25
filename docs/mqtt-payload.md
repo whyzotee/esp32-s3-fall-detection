@@ -83,12 +83,13 @@ state on the Tracker record.
 | `deviceInfo.applicationId` | Application identity and topic validation |
 | `object.latitude`, `object.longitude` | Tracker position; gateway location is never substituted |
 | `object.status` | 0 = normal, 1 = button/SOS, 2 = suspected fall |
+| `object.battery_mv`, `object.battery_percent` | Battery voltage and estimated percentage; `null` when the ADC value is invalid |
 | `time` | Event timestamp; fractional seconds accepted, stored at JavaScript millisecond precision |
 | `fPort` | Must be 2 for this tracker payload |
 | `fCnt` | Unsigned 32-bit uplink counter; gaps and resets are accepted |
 | `deduplicationId` | Preferred duplicate identity, scoped to application and DevEUI |
 | `rxInfo` | RSSI/SNR from the valid receiver with highest SNR; first receiver wins ties |
-| Battery / altitude | Not supplied by this payload; stored as null |
+| Altitude | Not supplied by this payload; stored as null |
 
 The full envelope is retained in PostgreSQL device events. Missing `object`, bad
 GPS/status/identity, a wrong FPort or conflicting standard topic is rejected
