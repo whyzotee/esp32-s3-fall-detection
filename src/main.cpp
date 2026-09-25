@@ -19,7 +19,7 @@ constexpr bool GNSS_DEBUG = false;
 // Temporary power-path diagnostic: keep GPIO36 LOW (VEXT/GNSS powered) over
 // deep sleep. This avoids the VEXT power transition, but consumes much more
 // battery power. Set false for normal production operation.
-constexpr bool KEEP_VEXT_ON_DURING_DEEP_SLEEP = true;
+constexpr bool KEEP_VEXT_ON_DURING_DEEP_SLEEP = false;
 
 void setup()
 {
