@@ -27,7 +27,11 @@ inline SerialMock Serial;
 inline void delay(int) {}
 namespace Board {
 constexpr int button = 0;
-inline void prepareSleep() { calls.push_back(4); }
+inline void prepareSleep() { calls.push_back(5); }
+}
+namespace AudioFeedback {
+enum class Event { DeepSleep };
+inline void playAndWait(Event) { calls.push_back(4); }
 }
 namespace DeviceButton { inline bool sosPending() { return sos; } }
 inline bool prepare_fall_detection_sleep() { ext1 = sensorReady; return sensorReady; }
@@ -45,9 +49,9 @@ inline void esp_sleep_enable_ext0_wakeup(int pin, int level) {
     calls.push_back(1);
 }
 inline void esp_sleep_enable_timer_wakeup(uint64_t value) { timer = value; }
-[[noreturn]] inline void esp_deep_sleep_start() { calls.push_back(6); throw Sleeping{}; }
+[[noreturn]] inline void esp_deep_sleep_start() { calls.push_back(7); throw Sleeping{}; }
 `);
-    for (const name of ['Arduino.h', 'board_pins.h', 'device_button.h',
+    for (const name of ['Arduino.h', 'audio_feedback.h', 'board_pins.h', 'device_button.h',
         'fall_detection.h', 'gnss.h', 'lora_wan.h', 'esp_sleep.h', 'driver/rtc_io.h']) {
         fs.writeFileSync(path.join(dir, name), '#include <mocks.h>\n');
     }
@@ -56,7 +60,7 @@ inline void esp_sleep_enable_timer_wakeup(uint64_t value) { timer = value; }
 #include "deep_sleep.cpp"
 void reset() { calls.clear(); timer = 99; ext1 = true; sos = false; sensorReady = true; }
 void checkShutdown() {
-    assert((calls == std::vector<int>{0, 1, 2, 3, 4, 5, 6}));
+    assert((calls == std::vector<int>{0, 1, 2, 3, 4, 5, 6, 7}));
 }
 int main() {
     reset();

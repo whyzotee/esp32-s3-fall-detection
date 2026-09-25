@@ -15,6 +15,7 @@ bool held = false;
 bool pendingOff = false;
 uint8_t clickCount = 0;
 uint32_t firstClickAt = 0;
+bool otaHoldCandidate = false;
 
 [[noreturn]] void sleepOff()
 {
@@ -22,6 +23,14 @@ uint32_t firstClickAt = 0;
     pendingSos = false;
     pendingOta = false;
     AudioFeedback::playAndWait(AudioFeedback::Event::PowerOff);
+
+    // GPIO0 is also the active-low EXT0 wake source.  Entering deep sleep
+    // while it is still held would wake the ESP32 immediately.  The power-off
+    // decision has already been made at the hold threshold; wait here so the
+    // user can release at any convenient time rather than having to time it.
+    Serial.println("[POWER] Off selected; release button to finish shutdown");
+    while (digitalRead(Board::button) == LOW) delay(10);
+    delay(40); // release debounce before arming EXT0
     DeepSleep::powerOff();
 }
 
@@ -42,16 +51,17 @@ void monitor(void *)
         held = raw || stable;
         if (raw != stable && uint32_t(now - changedAt) >= 40) {
             stable = raw;
-            if (stable) pressedAt = changedAt;
+            if (stable) {
+                pressedAt = changedAt;
+                // A third press after two short clicks can either be another
+                // short click (SOS) or a 3-second hold (OTA).
+                otaHoldCandidate = clickCount == 2 &&
+                    uint32_t(changedAt - firstClickAt) <= DeviceButton::sosTripleClickWindowMs;
+            }
             else {
                 const uint32_t heldMs = uint32_t(changedAt - pressedAt);
                 auto action = DeviceButton::classify(false, heldMs);
                 if (action == DeviceButton::Action::PowerOff) pendingOff = true;
-                else if (action == DeviceButton::Action::StartOta) {
-                    pendingOta = true;
-                    clickCount = 0;
-                    otaQueued = true;
-                }
                 else if (DeviceButton::isSosClick(heldMs)) {
                     if (clickCount == 0 || uint32_t(changedAt - firstClickAt) >
                                                DeviceButton::sosTripleClickWindowMs) {
@@ -66,15 +76,27 @@ void monitor(void *)
                     // A non-click press cancels a partial SOS sequence.
                     clickCount = 0;
                 }
+                otaHoldCandidate = false;
                 held = false;
             }
+        }
+        if (stable && otaHoldCandidate && !pendingOta &&
+            uint32_t(now - pressedAt) >= DeviceButton::otaSequenceHoldMs) {
+            pendingOta = true;
+            clickCount = 0;
+            otaHoldCandidate = false;
+            otaQueued = true;
+        }
+        if (stable && !otaHoldCandidate && !pendingOff &&
+            uint32_t(now - pressedAt) >= DeviceButton::powerOffMinMs) {
+            pendingOff = true;
         }
         portEXIT_CRITICAL(&lock);
         if (sosQueued) {
             Serial.println("[BUTTON] SOS queued (three clicks)");
             AudioFeedback::play(AudioFeedback::Event::Sos);
         }
-        if (otaQueued) Serial.println("[BUTTON] OTA mode queued (hold 8 seconds)");
+        if (otaQueued) Serial.println("[BUTTON] OTA mode queued (two clicks + 3-second hold)");
         delay(10);
     }
 }
@@ -106,7 +128,7 @@ void begin()
     }
     held = digitalRead(Board::button) == LOW;
     // A released EXT0 wake press is the first SOS click. If it is still held,
-    // monitor() measures it normally on release (so a long hold can power off).
+    // monitor() starts a normal power-off or OTA hold timer immediately.
     clickCount = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0 && !held) ? 1 : 0;
     firstClickAt = millis();
     if (xTaskCreate(monitor, "button", 2048, nullptr, 2, nullptr) != pdPASS) {
@@ -122,8 +144,13 @@ void service()
         portENTER_CRITICAL(&lock);
         const bool pressed = held;
         const bool turnOff = pendingOff;
+        const bool startOta = pendingOta;
         portEXIT_CRITICAL(&lock);
-        if (turnOff && !pressed) sleepOff();
+        // OTA starts at its hold threshold. Power-off is selected at its
+        // threshold, then sleepOff() waits internally for GPIO0 to release
+        // before arming that same pin as its EXT0 wake source.
+        if (startOta) return;
+        if (turnOff) sleepOff();
         if (!pressed && digitalRead(Board::button) == HIGH) return;
         delay(10);
     }

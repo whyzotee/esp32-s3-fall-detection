@@ -11,6 +11,7 @@ enum class Event : unsigned char {
     LoRaJoining,
     LoRaConnected,
     OtaMode,
+    DeepSleep,
 };
 
 // Start the buzzer worker after Board::begin() has configured GPIO4.

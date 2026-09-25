@@ -34,7 +34,11 @@ uint8_t percentage(uint16_t millivolts)
 namespace Battery {
 BatteryReading read()
 {
-    pinMode(Board::batteryAdc, INPUT);
+    // Arduino-ESP32 3.x registers the pin as an ADC channel on its first
+    // analog read. Set the default attenuation first, then initialize before
+    // applying the per-pin setting (the reverse order logs an ADC error).
+    analogSetAttenuation(ADC_11db);
+    analogReadMilliVolts(Board::batteryAdc);
     analogSetPinAttenuation(Board::batteryAdc, ADC_11db);
 
     // The divider has a high source impedance. Discard the first conversion and

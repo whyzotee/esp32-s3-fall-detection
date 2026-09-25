@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <audio_feedback.h>
 #include <deep_sleep.h>
 #include <app_config.h>
 #include <board_pins.h>
@@ -21,6 +22,7 @@ void armButton()
 {
     sleep_lora_radio();
     stop_gnss();
+    AudioFeedback::playAndWait(AudioFeedback::Event::DeepSleep);
     Board::prepareSleep();
     Serial.flush();
     esp_deep_sleep_start();
@@ -60,7 +62,7 @@ void logWakeReason()
 {
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     armButton();
-    Serial.println("[POWER] Off: hold button for 3 seconds and release to start");
+    Serial.println("[POWER] Off: waiting for a 1-4 second button hold to turn on");
     enter();
 }
 }

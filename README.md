@@ -47,13 +47,14 @@ real sensor events; an EXT0 wake alone does not mean SOS.
 
 ### Button and soft power-off
 
-Actions are selected on debounced release, so a power-off hold does not also send SOS.
+Short-click actions are selected on debounced release. Power-off and OTA holds
+start immediately once their three-second threshold is reached.
 
 | Current state | Hold before release | Action |
 | --- | --- | --- |
 | On | Three short presses, each under 1 second, within 1.5 seconds | Queue SOS (status 1) |
-| On | Hold 5–7 seconds | Soft power-off |
-| On | Hold at least 8 seconds | Start local Wi-Fi OTA mode |
+| On | Hold 3 seconds or longer | Select soft power-off immediately; it sleeps after the button is released |
+| On | Two short presses, then hold the third press for 3 seconds | Start local Wi-Fi OTA mode immediately; release is not required |
 | On | Any other hold | No button event |
 | Off | Hold 1–4 seconds | Power on |
 | Off | Any other hold | Return to off sleep, without starting GPS/LoRa |
@@ -73,12 +74,13 @@ silenced before every deep sleep and does not hold the device awake.
 | Event | Tone |
 | --- | --- |
 | Power on after a 1–4 second hold | Three rising notes |
-| Power off after a 5–7 second hold | Three falling notes, then sleeps |
+| Power off after a 3-second hold | Three falling notes, then sleeps after button release |
 | SOS queued by three short presses | Three high, evenly-spaced beeps |
 | ADXL362 suspected fall | Four urgent high beeps; final beep is longer |
 | LoRaWAN OTAA Join is in progress | Two low beeps, pause, then repeats until success or failure |
 | LoRaWAN session joined or restored | Three rising confirmation notes |
 | Local Wi-Fi OTA/AP mode starts | Alternating low/high notes, then one high confirmation note |
+| Enters deep sleep | One low confirmation beep |
 
 The buzzer uses a small background task, so SOS, fall and LoRa connection
 melodies do not block GNSS or radio work. The shutdown melody is the exception:
@@ -86,7 +88,10 @@ firmware waits for it to complete before entering deep sleep.
 
 ### Local Wi-Fi OTA update
 
-Hold S2 / GPIO0 for at least 8 seconds while the tracker is on, then release it.
+While the tracker is on, press S2 / GPIO0 twice shortly, then hold the third
+press for three seconds. OTA/AP mode starts immediately at the three-second
+threshold; releasing the button is not required. A third short press instead
+keeps the normal three-click SOS action.
 The tracker stops its radio and GNSS, starts the open Wi-Fi hotspot
 `Tracker-OTA-XXXXXX`, and prints its name and address to Serial Monitor. Connect
 to that hotspot and open [http://192.168.4.1](http://192.168.4.1). Upload the

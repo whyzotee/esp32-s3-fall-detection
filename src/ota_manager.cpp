@@ -90,7 +90,6 @@ bool startAp()
              static_cast<unsigned long long>(mac & 0xFFFFFFULL));
     apName = name;
 
-    WiFi.disconnect(true, true);
     WiFi.mode(WIFI_AP);
     if (!WiFi.softAP(apName.c_str())) return false;
 

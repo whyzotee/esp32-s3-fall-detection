@@ -39,6 +39,9 @@ constexpr Note otaMode[] = {
     {1200, 100, 55}, {1600, 100, 55}, {1200, 100, 55}, {1600, 100, 55},
     {2400, 220, 0},
 };
+constexpr Note deepSleep[] = {
+    {900, 180, 0},
+};
 
 Melody melodyFor(AudioFeedback::Event event)
 {
@@ -57,6 +60,8 @@ Melody melodyFor(AudioFeedback::Event event)
         return {loraConnected, uint8_t(sizeof(loraConnected) / sizeof(loraConnected[0])), "LoRa connected"};
     case AudioFeedback::Event::OtaMode:
         return {otaMode, uint8_t(sizeof(otaMode) / sizeof(otaMode[0])), "OTA mode"};
+    case AudioFeedback::Event::DeepSleep:
+        return {deepSleep, uint8_t(sizeof(deepSleep) / sizeof(deepSleep[0])), "deep sleep"};
     }
     return {nullptr, 0, "unknown"};
 }
