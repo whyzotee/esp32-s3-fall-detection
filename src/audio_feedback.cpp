@@ -29,6 +29,9 @@ constexpr Note sos[] = {
 constexpr Note fall[] = {
     {3300, 160, 70}, {3300, 160, 70}, {3300, 160, 70}, {3300, 320, 0},
 };
+constexpr Note loraJoining[] = {
+    {1200, 100, 60}, {1200, 100, 2000},
+};
 constexpr Note loraConnected[] = {
     {1760, 70, 40}, {2200, 70, 40}, {2640, 150, 0},
 };
@@ -48,6 +51,8 @@ Melody melodyFor(AudioFeedback::Event event)
         return {sos, uint8_t(sizeof(sos) / sizeof(sos[0])), "SOS"};
     case AudioFeedback::Event::Fall:
         return {fall, uint8_t(sizeof(fall) / sizeof(fall[0])), "fall"};
+    case AudioFeedback::Event::LoRaJoining:
+        return {loraJoining, uint8_t(sizeof(loraJoining) / sizeof(loraJoining[0])), "LoRa joining"};
     case AudioFeedback::Event::LoRaConnected:
         return {loraConnected, uint8_t(sizeof(loraConnected) / sizeof(loraConnected[0])), "LoRa connected"};
     case AudioFeedback::Event::OtaMode:
@@ -58,19 +63,40 @@ Melody melodyFor(AudioFeedback::Event event)
 
 QueueHandle_t eventQueue = nullptr;
 SemaphoreHandle_t buzzerLock = nullptr;
+bool buzzerAttached = false;
+volatile bool loopEnabled = false;
+AudioFeedback::Event loopEvent = AudioFeedback::Event::LoRaJoining;
+
+void stopBuzzer()
+{
+    if (buzzerAttached) {
+        ledcWriteTone(Board::buzzer, 0);
+        ledcDetach(Board::buzzer);
+        buzzerAttached = false;
+    }
+    pinMode(Board::buzzer, OUTPUT);
+    digitalWrite(Board::buzzer, LOW);
+}
 
 void playMelody(AudioFeedback::Event event)
 {
     const Melody melody = melodyFor(event);
     if (!melody.notes || !buzzerLock) return;
     xSemaphoreTake(buzzerLock, portMAX_DELAY);
+    if (!ledcAttach(Board::buzzer, melody.notes[0].hz, 10)) {
+        Serial.println("[AUDIO] Failed to attach buzzer LEDC");
+        xSemaphoreGive(buzzerLock);
+        return;
+    }
+    buzzerAttached = true;
     for (uint8_t i = 0; i < melody.count; ++i) {
         const Note &note = melody.notes[i];
-        tone(Board::buzzer, note.hz, note.onMs);
+        ledcWriteTone(Board::buzzer, note.hz);
         delay(note.onMs);
-        noTone(Board::buzzer);
+        ledcWriteTone(Board::buzzer, 0);
         if (note.offMs) delay(note.offMs);
     }
+    stopBuzzer();
     xSemaphoreGive(buzzerLock);
 }
 
@@ -78,8 +104,11 @@ void worker(void *)
 {
     AudioFeedback::Event event;
     for (;;) {
-        if (xQueueReceive(eventQueue, &event, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(eventQueue, &event, portMAX_DELAY) == pdTRUE) {
             playMelody(event);
+            if (loopEnabled && event == loopEvent)
+                xQueueSend(eventQueue, &event, 0);
+        }
     }
 }
 }
@@ -108,10 +137,39 @@ void play(Event event)
     Serial.printf("[AUDIO] %s melody queued\n", melody.name);
 }
 
+void startLoop(Event event)
+{
+    const Melody melody = melodyFor(event);
+    if (!melody.notes || !eventQueue) return;
+    loopEvent = event;
+    loopEnabled = true;
+    xQueueReset(eventQueue);
+    if (xQueueSend(eventQueue, &event, 0) == pdTRUE)
+        Serial.printf("[AUDIO] %s melody loop started\n", melody.name);
+}
+
+void stopLoop(Event event)
+{
+    if (!loopEnabled || loopEvent != event) return;
+    loopEnabled = false;
+    if (eventQueue) xQueueReset(eventQueue);
+    Serial.printf("[AUDIO] %s melody loop stopped\n", melodyFor(event).name);
+}
+
 void playAndWait(Event event)
 {
     const Melody melody = melodyFor(event);
     if (!melody.notes || !buzzerLock) return;
     playMelody(event);
+}
+
+void silence()
+{
+    if (!buzzerLock) return;
+    loopEnabled = false;
+    if (eventQueue) xQueueReset(eventQueue);
+    xSemaphoreTake(buzzerLock, portMAX_DELAY);
+    stopBuzzer();
+    xSemaphoreGive(buzzerLock);
 }
 }

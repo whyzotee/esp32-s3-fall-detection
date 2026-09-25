@@ -1,4 +1,5 @@
 #include <board_pins.h>
+#include <audio_feedback.h>
 #include <driver/gpio.h>
 
 namespace Board {
@@ -27,6 +28,7 @@ void prepareSleep()
 {
     setVext(false);
     gpio_hold_en(gpio_num_t(vextControl));
+    AudioFeedback::silence();
     for (int pin : {buzzer, vibration, statusLed}) {
         digitalWrite(pin, LOW);
         gpio_hold_en(gpio_num_t(pin));

@@ -8,6 +8,7 @@ enum class Event : unsigned char {
     PowerOff,
     Sos,
     Fall,
+    LoRaJoining,
     LoRaConnected,
     OtaMode,
 };
@@ -18,7 +19,16 @@ void begin();
 // Queue the event's distinct melody without blocking the tracker cycle.
 void play(Event event);
 
+// Repeat an event melody in the background until stopLoop() is called. This is
+// used for the in-progress OTAA Join state.
+void startLoop(Event event);
+void stopLoop(Event event);
+
 // Use for events that immediately enter deep sleep, so the user can hear the
 // complete melody before the buzzer rail is shut down.
 void playAndWait(Event event);
+
+// Cancels queued audio and returns GPIO4 to a normal LOW GPIO output.
+// Board::prepareSleep() calls this before applying GPIO hold.
+void silence();
 }

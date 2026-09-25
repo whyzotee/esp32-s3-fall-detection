@@ -95,13 +95,16 @@ bool setup_lora_wan_app()
     {
         Serial.printf("[LoRa] Initiating OTAA Join (DevEUI: %016llX)...\n",
                       (unsigned long long)LoRaCredentials::devEui);
+        AudioFeedback::startLoop(AudioFeedback::Event::LoRaJoining);
         if (!storage.reserveJoin(node))
         {
             Serial.println("[LoRa] Failed to reserve DevNonce; aborting join");
+            AudioFeedback::stopLoop(AudioFeedback::Event::LoRaJoining);
             return false;
         }
 
         state = node.activateOTAA();
+        AudioFeedback::stopLoop(AudioFeedback::Event::LoRaJoining);
         if (state == RADIOLIB_LORAWAN_NEW_SESSION)
         {
             Serial.println("[LoRa] OTAA Join successful (new session)");

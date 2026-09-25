@@ -76,6 +76,7 @@ silenced before every deep sleep and does not hold the device awake.
 | Power off after a 5–7 second hold | Three falling notes, then sleeps |
 | SOS queued by three short presses | Three high, evenly-spaced beeps |
 | ADXL362 suspected fall | Four urgent high beeps; final beep is longer |
+| LoRaWAN OTAA Join is in progress | Two low beeps, pause, then repeats until success or failure |
 | LoRaWAN session joined or restored | Three rising confirmation notes |
 | Local Wi-Fi OTA/AP mode starts | Alternating low/high notes, then one high confirmation note |
 
