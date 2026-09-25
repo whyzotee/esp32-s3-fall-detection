@@ -13,4 +13,4 @@ All notable firmware changes are documented here.
 ### Changed
 
 - Uplink payload is 15 bytes. Application decoders must use the updated codec.
-- Production deep sleep keeps VEXT disabled by default.
+- Removed the temporary VEXT deep-sleep override; VEXT is always disabled during deep sleep.

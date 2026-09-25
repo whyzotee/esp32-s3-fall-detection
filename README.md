@@ -217,7 +217,7 @@ The `decodeUplink(input)` interface follows [The Things Stack documentation](htt
 | 0 | Status: 0 = normal, 1 = SOS button hold, 2 = free-fall detected / suspected fall |
 | 1–4 | Latitude: float32 little-endian |
 | 5–8 | Longitude: float32 little-endian |
-| 9 | Flags: bit 0 = fresh GNSS fix, bit 1 = low-power mode, bit 2 = debug simulation, bit 3 = VEXT held on during deep sleep, bit 4 = valid battery reading |
+| 9 | Flags: bit 0 = fresh GNSS fix, bit 1 = low-power mode, bit 2 = debug simulation, bit 4 = valid battery reading |
 | 10, 11 | Firmware major, minor version |
 | 12, 13 | Battery voltage in millivolts, uint16 little-endian |
 | 14 | Estimated Li-ion battery percentage, 0–100 |
@@ -274,7 +274,6 @@ function decodeUplink(input) {
                 gps_fresh: !!(flags & 1),
                 low_power_mode: !!(flags & 2),
                 debug_simulation: !!(flags & 4),
-                vext_held_on: !!(flags & 8),
                 battery_valid: !!(flags & 16)
             }
         },
@@ -305,7 +304,6 @@ Expected `data` output:
     "gps_fresh": false,
     "low_power_mode": false,
     "debug_simulation": false,
-    "vext_held_on": false,
     "battery_valid": true
   }
 }

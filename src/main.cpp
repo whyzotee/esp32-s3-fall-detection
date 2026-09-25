@@ -16,16 +16,10 @@ constexpr bool LORA_DEBUG = false;
 constexpr uint32_t LORA_DEBUG_INTERVAL_MS = 15000;
 // Echo raw NMEA for GNSS diagnostics; this does not disable acquisition timeouts.
 constexpr bool GNSS_DEBUG = false;
-// Temporary power-path diagnostic: keep GPIO36 LOW (VEXT/GNSS powered) over
-// deep sleep. This avoids the VEXT power transition, but consumes much more
-// battery power. Set false for normal production operation.
-constexpr bool KEEP_VEXT_ON_DURING_DEEP_SLEEP = false;
-
 void setup()
 {
     Serial.begin(115200);
     setCpuFrequencyMhz(80);
-    Board::keepVextEnabledDuringSleep(KEEP_VEXT_ON_DURING_DEEP_SLEEP);
     Board::begin();
     AudioFeedback::begin();
     DeviceButton::begin();
@@ -42,8 +36,6 @@ void setup()
     Serial.println("\n=== ESP32-S3 Tracker Initializing ===");
 
     Serial.printf("LoRa debug: %s\n", LORA_DEBUG ? "ON (real deep sleep)" : "OFF");
-    Serial.printf("VEXT deep sleep: %s\n",
-                  KEEP_VEXT_ON_DURING_DEEP_SLEEP ? "ON (power test)" : "OFF");
     DebugMode::begin(LORA_DEBUG, LORA_DEBUG_INTERVAL_MS);
     DeepSleep::logWakeReason();
     setup_fall_detection(LORA_DEBUG);

@@ -81,7 +81,6 @@ namespace TrackerApp {
 
     if (PowerMode::enabled()) sample.flags |= TelemetryFlags::lowPowerMode;
     if (debug) sample.flags |= TelemetryFlags::debugSimulation;
-    if (Board::vextEnabledDuringSleep()) sample.flags |= TelemetryFlags::vextHeldOn;
     const BatteryReading battery = Battery::read();
     sample.batteryMv = battery.millivolts;
     sample.batteryPercent = battery.percent;

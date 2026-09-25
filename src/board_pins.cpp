@@ -2,20 +2,6 @@
 #include <driver/gpio.h>
 
 namespace Board {
-namespace {
-bool keepVextEnabled = false;
-}
-
-void keepVextEnabledDuringSleep(bool enabled)
-{
-    keepVextEnabled = enabled;
-}
-
-bool vextEnabledDuringSleep()
-{
-    return keepVextEnabled;
-}
-
 void setVext(bool enabled)
 {
     gpio_set_level(gpio_num_t(vextControl), enabled ? LOW : HIGH);
@@ -26,7 +12,7 @@ void begin()
 {
     gpio_deep_sleep_hold_dis();
     // Preload output latches before releasing the levels held during sleep.
-    setVext(keepVextEnabled);
+    setVext(false);
     gpio_hold_dis(gpio_num_t(vextControl));
     for (int pin : {buzzer, vibration, statusLed}) {
         gpio_set_level(gpio_num_t(pin), LOW);
@@ -39,7 +25,7 @@ void begin()
 
 void prepareSleep()
 {
-    setVext(keepVextEnabled);
+    setVext(false);
     gpio_hold_en(gpio_num_t(vextControl));
     for (int pin : {buzzer, vibration, statusLed}) {
         digitalWrite(pin, LOW);
