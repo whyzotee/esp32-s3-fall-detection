@@ -48,12 +48,7 @@ Example `.object` from the test event below:
   "status": 0,
   "event": "Normal Update",
   "latitude": 13.758852005004883,
-  "longitude": 100.50289154052734,
-  "hour": 0,
-  "minute": 4,
-  "second": 45,
-  "centisecond": 17,
-  "time_string": "00:04:45"
+  "longitude": 100.50289154052734
 }
 ```
 
@@ -66,8 +61,7 @@ Example `.object` from the test event below:
 | `data` | Base64-encoded application payload after LoRaWAN decryption, not decoded coordinate JSON |
 | `object` | Output of the payload decoder configured in the device profile |
 | `object.status: 0` | Normal periodic update; 1 = SOS, 2 = free-fall / suspected fall |
-| `time` | System event timestamp, distinct from `object.time_string` |
-| `object.time_string` | In debug mode, elapsed boot time rather than UTC; coordinates are also simulated |
+| `time` | Authoritative ChirpStack event timestamp |
 | `txInfo.frequency: 923200000` | Uplink frequency of 923.2 MHz |
 | `spreadingFactor: 7`, `bandwidth: 125000` | SF7 / BW125 kHz, as configured for debug mode |
 | `regionConfigId: as923` | Region configuration that processed this event |
@@ -84,8 +78,8 @@ Gateway Bridge encoding does not need to change to read application JSON. See th
 [ChirpStack configuration documentation](https://www.chirpstack.io/docs/chirpstack/configuration.html).
 
 If `.object` is `null` or missing, inspect the full event and check the payload codec
-in the device profile. If status or time values are out of range, check the FPort,
-17-byte payload, decoder, and ABP AppSKey against the board configuration. Never
+in the device profile. If status or coordinate values are out of range, check the FPort,
+12-byte payload, decoder, and OTAA credentials against the board configuration. Never
 publish keys in logs or documentation. An earlier test had mismatched AppSKey values,
 which produced incorrect decoded data even though packets were received.
 
@@ -117,17 +111,12 @@ see [ChirpStack event types](https://www.chirpstack.io/docs/chirpstack/integrati
   "fCnt": 174,
   "fPort": 2,
   "confirmed": false,
-  "data": "AEIkXEF7AclCAAAEAC0AEQA=",
+  "data": "AEIkXEF7AclCAAEA",
   "object": {
-    "second": 45.0,
-    "minute": 4.0,
     "longitude": 100.50289154052734,
-    "centisecond": 17.0,
     "status": 0.0,
     "event": "Normal Update",
-    "time_string": "00:04:45",
-    "latitude": 13.758852005004883,
-    "hour": 0.0
+    "latitude": 13.758852005004883
   },
   "rxInfo": [
     {

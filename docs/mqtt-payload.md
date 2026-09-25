@@ -84,7 +84,6 @@ state on the Tracker record.
 | `object.latitude`, `object.longitude` | Tracker position; gateway location is never substituted |
 | `object.status` | 0 = normal, 1 = button/SOS, 2 = suspected fall |
 | `time` | Event timestamp; fractional seconds accepted, stored at JavaScript millisecond precision |
-| `object.time_string` | Device diagnostic time; in debug mode it is elapsed boot time, not UTC |
 | `fPort` | Must be 2 for this tracker payload |
 | `fCnt` | Unsigned 32-bit uplink counter; gaps and resets are accepted |
 | `deduplicationId` | Preferred duplicate identity, scoped to application and DevEUI |
@@ -92,7 +91,7 @@ state on the Tracker record.
 | Battery / altitude | Not supplied by this payload; stored as null |
 
 The full envelope is retained in PostgreSQL device events. Missing `object`, bad
-GPS/status/time/identity, a wrong FPort or conflicting standard topic is rejected
+GPS/status/identity, a wrong FPort or conflicting standard topic is rejected
 with a diagnostic reason. Binary gateway events are not application JSON. The
 adapter does not decode Base64 `data`; configure the device-profile codec in
 ChirpStack. Invalid optional receiver measurements are ignored.

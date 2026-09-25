@@ -38,10 +38,8 @@ Telemetry walking_sample(uint8_t status)
     RTC_DATA_ATTR static double walkingLon = 100.5018;
     RTC_DATA_ATTR static double heading = 0.0;
     RTC_DATA_ATTR static uint64_t lastStep = 0;
-    RTC_DATA_ATTR static uint64_t origin = 0;
     RTC_DATA_ATTR static bool started = false;
     uint64_t now = simulationClockMs();
-    if (!started) origin = now;
     if (started)
     {
         double seconds = now >= lastStep ? (now - lastStep) / 1000.0 : 0;
@@ -55,16 +53,7 @@ Telemetry walking_sample(uint8_t status)
     lastStep = now;
     sample.lat = walkingLat;
     sample.lon = walkingLon;
-    // Synthetic elapsed time; never presented as actual GNSS time.
-    uint64_t elapsed = now >= origin ? now - origin : 0;
-    uint32_t seconds = elapsed / 1000;
-    sample.hour = (seconds / 3600) % 24;
-    sample.minute = (seconds / 60) % 60;
-    sample.second = seconds % 60;
-    sample.centisecond = (elapsed % 1000) / 10;
-
-    Serial.printf("[SIMULATED WALK] %02u:%02u:%02u.%02u, LAT: %.6f, LON: %.6f, STATUS: %u\n",
-                  sample.hour, sample.minute, sample.second, sample.centisecond,
+    Serial.printf("[SIMULATED WALK] LAT: %.6f, LON: %.6f, STATUS: %u\n",
                   sample.lat, sample.lon, sample.status);
     return sample;
 }

@@ -113,7 +113,7 @@ Button and fall wakeups remain enabled in Low Power Mode.
 
 This Class A device receives queued commands in the receive windows after an
 uplink, not while sleeping. An API success only confirms broker acceptance; it
-does not prove the device has applied the command. The unchanged 17-byte uplink
+does not prove the device has applied the command. The 12-byte uplink
 has no Low Power status field. The one-hour interval is sleep time; GPS acquisition
 and radio processing add to the actual time between reports.
 
@@ -131,7 +131,7 @@ Exact versions are pinned in `platformio.ini` for reproducible builds.
 - `src/board_pins.cpp`: shared VEXT power and inactive actuator levels.
 - `src/debug_mode.cpp`: walking simulation and Serial monitor debug diagnostics.
 - `src/device_button.cpp`: debounced holds, pending SOS and RTC soft-off state.
-- `src/telemetry.cpp`: real/cached GPS readings and the 17-byte encoder.
+- `src/telemetry.cpp`: real/cached GPS readings and the 12-byte encoder.
 - `src/tracker_app.cpp`: wake-cycle orchestration, event priority, downlink dispatch and retry timing.
 - `src/ota_manager.cpp`: local Wi-Fi OTA portal, update handoff and rollback confirmation.
 - `src/lora_wan.cpp`: radio, OTAA activation, packet exchange and session persistence calls; no sleep scheduling.
@@ -181,13 +181,14 @@ DevNonce reuse, so the small number of NVS writes around joins is intentional.
 Keep RTC memory powered during deep sleep (the ESP32 default for `RTC_DATA_ATTR`).
 Run `node test/session_recovery.cjs` for the host-side storage lifecycle tests.
 
-The 17-byte payload format remains unchanged and compatible with `decoder/TTNDecoder.js`.
+The 12-byte payload contains status, coordinates, diagnostic flags and firmware
+version. ChirpStack's envelope `time` is the authoritative event timestamp.
 Latitude and longitude are little-endian float32.
 
 ## Payload decoder (TTN / The Things Stack)
 
 Copy the JavaScript below into the device's **Payload formatters → Uplink** page.
-Select **Custom JavaScript formatter** and save. Use FPort `2` and the 17-byte
+Select **Custom JavaScript formatter** and save. Use FPort `2` and the 12-byte
 decrypted LoRaWAN application payload, not a raw radio packet.
 The `decodeUplink(input)` interface follows [The Things Stack documentation](https://www.thethingsindustries.com/docs/integrations/payload-formatters/javascript/uplink/).
 
@@ -196,10 +197,8 @@ The `decodeUplink(input)` interface follows [The Things Stack documentation](htt
 | 0 | Status: 0 = normal, 1 = SOS button hold, 2 = free-fall detected / suspected fall |
 | 1–4 | Latitude: float32 little-endian |
 | 5–8 | Longitude: float32 little-endian |
-| 9, 11, 13, 15 | Hour, minute, second, centisecond (1/100 second) |
-| 10 | Flags: bit 0 = fresh GNSS fix, bit 1 = low-power mode, bit 2 = debug simulation, bit 3 = VEXT held on during deep sleep |
-| 12, 14 | Firmware major, minor version |
-| 16 | Reserved; firmware sends 0 |
+| 9 | Flags: bit 0 = fresh GNSS fix, bit 1 = low-power mode, bit 2 = debug simulation, bit 3 = VEXT held on during deep sleep |
+| 10, 11 | Firmware major, minor version |
 
 ```javascript
 function decodeUplink(input) {
@@ -207,8 +206,8 @@ function decodeUplink(input) {
     if (input.fPort !== 2) {
         return { errors: ["Expected FPort 2"] };
     }
-    if (!bytes || bytes.length !== 17) {
-        return { errors: ["Expected exactly 17 payload bytes"] };
+    if (!bytes || bytes.length !== 12) {
+        return { errors: ["Expected exactly 12 payload bytes"] };
     }
 
     // IEEE 754 float32, little-endian; compatible with ES5.1 formatters.
@@ -223,10 +222,6 @@ function decodeUplink(input) {
         return sign * (1 + fraction / 8388608) * Math.pow(2, exponent - 127);
     }
 
-    function pad2(value) {
-        return (value < 10 ? "0" : "") + value;
-    }
-
     var latitude = float32LE(1);
     var longitude = float32LE(5);
     if (!isFinite(latitude) || !isFinite(longitude) ||
@@ -236,28 +231,19 @@ function decodeUplink(input) {
 
     var events = ["Normal Update", "SOS", "Fall Detected"];
     var warnings = [];
-    var firmwareVersion = (bytes[12] || bytes[14])
-        ? bytes[12] + "." + bytes[14] : null;
-    var flags = bytes[10];
+    var firmwareVersion = (bytes[10] || bytes[11])
+        ? bytes[10] + "." + bytes[11] : null;
+    var flags = bytes[9];
     if (bytes[0] > 2) warnings.push("Unknown status code");
     if (latitude === 0 && longitude === 0) {
         warnings.push("Coordinates are 0,0; GPS fix may be unavailable");
     }
-    if (bytes[9] > 23 || bytes[11] > 59 || bytes[13] > 59 || bytes[15] > 99) {
-        warnings.push("Time fields are outside the expected range");
-    }
-
     return {
         data: {
             status: bytes[0],
             event: events[bytes[0]] || "Unknown",
             latitude: latitude,
             longitude: longitude,
-            hour: bytes[9],
-            minute: bytes[11],
-            second: bytes[13],
-            centisecond: bytes[15],
-            time_string: pad2(bytes[9]) + ":" + pad2(bytes[11]) + ":" + pad2(bytes[13]),
             firmware_version: firmwareVersion,
             flags: firmwareVersion === null ? null : {
                 gps_fresh: !!(flags & 1),
@@ -275,7 +261,7 @@ function decodeUplink(input) {
 Test with FPort `2` and this hexadecimal payload:
 
 ```text
-02000060410000C9420C00220138004E00
+02000060410000C942000100
 ```
 
 Expected `data` output:
@@ -286,11 +272,6 @@ Expected `data` output:
   "event": "Fall Detected",
   "latitude": 14,
   "longitude": 100.5,
-  "hour": 12,
-  "minute": 34,
-  "second": 56,
-  "centisecond": 78,
-  "time_string": "12:34:56",
   "firmware_version": "1.0",
   "flags": {
     "gps_fresh": false,
@@ -304,11 +285,9 @@ Expected `data` output:
 `Fall Detected` retains the original event name for compatibility, but indicates
 a suspected fall based on free-fall, not a confirmed human fall. This script omits
 the original decoder's `altitude: 10` because the firmware does not transmit altitude.
-The existing `decoder/TTNDecoder.js` file has not been changed.
-With debug enabled, coordinates are simulated and time is elapsed boot time, not UTC;
-the payload has no flag for the decoder to identify debug mode automatically.
-With debug disabled, time comes from GNSS. Button/fall events may use previously
-cached coordinates and time rather than a fresh fix.
+With debug enabled, coordinates are simulated. `flags.debug_simulation` identifies
+them. Button/fall events may use previously cached coordinates rather than a fresh
+fix; check `flags.gps_fresh`.
 
 ## Verification before handoff
 

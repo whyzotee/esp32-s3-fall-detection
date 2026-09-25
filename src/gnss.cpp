@@ -36,10 +36,6 @@ void printGnssFailure()
 
 RTC_DATA_ATTR int32_t rtc_lat = 0;
 RTC_DATA_ATTR int32_t rtc_lon = 0;
-RTC_DATA_ATTR uint8_t rtc_hour = 0;
-RTC_DATA_ATTR uint8_t rtc_minute = 0;
-RTC_DATA_ATTR uint8_t rtc_second = 0;
-RTC_DATA_ATTR uint8_t rtc_centisecond = 0;
 
 void setup_gnss(bool rawNmeaDebug)
 {
@@ -107,11 +103,4 @@ void get_location()
                           ? GPS.satellites.value() : 0));
     }
 
-    if (GPS.time.isValid())
-    {
-        rtc_hour = GPS.time.hour();
-        rtc_minute = GPS.time.minute();
-        rtc_second = GPS.time.second();
-        rtc_centisecond = GPS.time.centisecond();
-    }
 }

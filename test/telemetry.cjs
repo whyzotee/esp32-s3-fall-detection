@@ -9,6 +9,7 @@ const encoder = telemetry.slice(telemetry.indexOf('void encode_telemetry'));
 const walk = debug.slice(debug.indexOf('Telemetry walking_sample'), debug.indexOf('void message'));
 const program = `
 #include <telemetry.h>
+#include <firmware_version.h>
 #include <cstring>
 #include <cassert>
 #include <cmath>
@@ -24,11 +25,10 @@ ${walk}
 int main() {
     Telemetry s{};
     s.status = 2; s.lat = 14; s.lon = 100.5;
-    s.hour = 12; s.minute = 34; s.second = 56; s.centisecond = 78;
     uint8_t payload[TELEMETRY_PAYLOAD_SIZE];
     memset(payload, 0xff, sizeof(payload));
     encode_telemetry(s, payload);
-    const uint8_t expected[] = {2,0,0,96,65,0,0,201,66,12,0,34,0,56,0,78,0};
+    const uint8_t expected[] = {2,0,0,96,65,0,0,201,66,0,1,0};
     assert(sizeof(payload) == sizeof(expected));
     assert(memcmp(payload, expected, sizeof(expected)) == 0);
     auto a = walking_sample(0);
@@ -37,10 +37,10 @@ int main() {
     auto b = walking_sample(2);
     double distance = (b.lat - a.lat) * 111320;
     assert(distance > 13.3 && distance < 22.7);
-    assert(b.status == 2 && b.second == 15);
+    assert(b.status == 2);
     clockMs = 30120;
     auto c = walking_sample(0);
-    assert(c.second == 30 && c.centisecond == 12);
+    assert(c.status == 0);
 }
 `;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-telemetry-'));

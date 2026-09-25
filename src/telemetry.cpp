@@ -9,20 +9,12 @@ extern TinyGPSPlus GPS;
 
 extern int32_t rtc_lat;
 extern int32_t rtc_lon;
-extern uint8_t rtc_hour;
-extern uint8_t rtc_minute;
-extern uint8_t rtc_second;
-extern uint8_t rtc_centisecond;
 
 namespace {
 void useRtcLocation(Telemetry &sample)
 {
     sample.lat = rtc_lat / 1e6f;
     sample.lon = rtc_lon / 1e6f;
-    sample.hour = rtc_hour;
-    sample.minute = rtc_minute;
-    sample.second = rtc_second;
-    sample.centisecond = rtc_centisecond;
 }
 }
 
@@ -42,10 +34,6 @@ Telemetry read_telemetry(uint8_t status)
             sample.flags |= TelemetryFlags::gpsFresh;
             sample.lat = GPS.location.lat();
             sample.lon = GPS.location.lng();
-            sample.hour = GPS.time.hour();
-            sample.minute = GPS.time.minute();
-            sample.second = GPS.time.second();
-            sample.centisecond = GPS.time.centisecond();
         }
         else
         {
@@ -54,8 +42,7 @@ Telemetry read_telemetry(uint8_t status)
         }
     }
 
-    Serial.printf("[GPS] %02u:%02u:%02u.%02u, LAT: %.6f, LON: %.6f, STATUS: %u\n",
-                  sample.hour, sample.minute, sample.second, sample.centisecond,
+    Serial.printf("[GPS] LAT: %.6f, LON: %.6f, STATUS: %u\n",
                   sample.lat, sample.lon, sample.status);
     return sample;
 }
@@ -65,14 +52,10 @@ void encode_telemetry(const Telemetry &sample, uint8_t *payload)
     static_assert(sizeof(float) == 4, "Payload requires float32");
     memset(payload, 0, TELEMETRY_PAYLOAD_SIZE);
     payload[0] = sample.status;
-    payload[10] = sample.flags;
     // ESP32 stores IEEE-754 floats in little-endian byte order.
     memcpy(payload + 1, &sample.lat, 4);
     memcpy(payload + 5, &sample.lon, 4);
-    payload[9] = sample.hour;
-    payload[11] = sample.minute;
-    payload[12] = FirmwareVersion::major;
-    payload[13] = sample.second;
-    payload[14] = FirmwareVersion::minor;
-    payload[15] = sample.centisecond;
+    payload[9] = sample.flags;
+    payload[10] = FirmwareVersion::major;
+    payload[11] = FirmwareVersion::minor;
 }
